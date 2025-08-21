@@ -33,7 +33,10 @@ UNIT_WEIGHT_TON = 1.5
 class LogisticsInput(BaseModel):
     model: str = Field(..., description="Car model being shipped")
     quantity: int = Field(..., description="Number of units to ship")
-    distance_km: int = Field(..., description="Distance to delivery location in km")
+    distance_km: int = Field(
+        default=1000,
+        description="Distance to delivery location in km (defaults to 1000km if not provided)",
+    )
     urgency: str = Field(
         default="normal",
         description="Delivery urgency: 'normal' or 'urgent' (urgent may force air freight)",
@@ -46,11 +49,16 @@ class LogisticsInput(BaseModel):
         default="DHL",
         description="Carrier choice: DHL, FedEx, or LocalFreight",
     )
+    delivery_location: str = Field(
+        default="",
+        description="Delivery location to help estimate distance if distance_km not provided",
+    )
 
 
 class LogisticsTool(Tool[str]):
     id: str = "logistics_tool"
-    name: str = "Logistics & Shipping Tool"
+    # FIXED: Remove spaces and special characters from the name
+    name: str = "LogisticsShippingTool"
     description: str = (
         "Estimates shipping cost, ETA, and CO₂ emissions for orders, "
         "considering carriers and urgency."
@@ -63,11 +71,31 @@ class LogisticsTool(Tool[str]):
         context: ToolRunContext,
         model: str,
         quantity: int,
-        distance_km: int,
-        urgency: str,
-        preferred_mode: str,
-        carrier: str,
+        distance_km: int = 1000,
+        urgency: str = "normal",
+        preferred_mode: str = "road",
+        carrier: str = "DHL",
+        delivery_location: str = "",
     ) -> str:
+        # Hardcoded distances for common locations (km from Mumbai/India)
+        LOCATION_DISTANCES = {
+            "Berlin": 6300,
+            "Paris": 7000,
+            "London": 7200,
+            "New York": 12500,
+            "Singapore": 3900,
+            "Tokyo": 6800,
+            "Mumbai": 0,
+            "Delhi": 1400,
+            "Bangalore": 840,
+        }
+
+        # If delivery_location is provided and we have a hardcoded distance, use it
+        if delivery_location and delivery_location in LOCATION_DISTANCES:
+            distance_km = LOCATION_DISTANCES[delivery_location]
+        elif distance_km <= 0:
+            # Fallback to default distance
+            distance_km = 1000
         # validate mode
         if preferred_mode not in LOGISTICS_RATES:
             return (

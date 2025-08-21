@@ -2,7 +2,7 @@ from typing import Type
 from pydantic import BaseModel, Field
 from portia import Tool, ToolRunContext
 
-
+# Simulated inventory
 INVENTORY = {
     "Harrier": 5,
     "Safari": 2,

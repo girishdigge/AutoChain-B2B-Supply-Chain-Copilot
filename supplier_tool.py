@@ -1,4 +1,4 @@
-from typing import Type, List, Dict
+from typing import Type, List, Dict, Optional
 from pydantic import BaseModel, Field
 from portia import Tool, ToolRunContext
 
@@ -40,7 +40,7 @@ SUPPLIERS: Dict[str, List[dict]] = {
 class SupplierInput(BaseModel):
     model: str = Field(..., description="Car model requested")
     quantity: int = Field(..., description="Quantity requested")
-    urgency: str = Field(
+    urgency: Optional[str] = Field(
         default="normal",
         description="Order urgency: 'normal' or 'urgent' (urgent adds surcharge, shorter lead time)",
     )
@@ -56,7 +56,11 @@ class SupplierTool(Tool[Dict]):
     output_schema: tuple[str, str] = ("json", "Supplier quotes with pricing details")
 
     def run(
-        self, context: ToolRunContext, model: str, quantity: int, urgency: str
+        self,
+        context: ToolRunContext,
+        model: str,
+        quantity: int,
+        urgency: Optional[str] = "normal",
     ) -> Dict:
         suppliers = SUPPLIERS.get(model)
         if not suppliers:

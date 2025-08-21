@@ -1,3 +1,4 @@
+# clarification_tool.py
 from typing import Type
 from pydantic import BaseModel, Field
 from portia import Tool, ToolRunContext
@@ -9,7 +10,8 @@ class ClarificationInput(BaseModel):
 
 class ClarificationTool(Tool[str]):
     id: str = "clarification_tool"
-    name: str = "Clarification Tool"
+    # CORRECTED NAME
+    name: str = "ClarificationTool"
     description: str = (
         "Asks the user for missing details when required fields are not provided."
     )

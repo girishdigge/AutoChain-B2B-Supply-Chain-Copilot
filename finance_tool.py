@@ -33,7 +33,8 @@ class FinanceInput(BaseModel):
 
 class FinanceTool(Tool[str]):
     id: str = "finance_tool"
-    name: str = "Finance & Payment Tool"
+    # FIXED: Remove spaces and special characters from the name
+    name: str = "FinanceAndPaymentTool"
     description: str = (
         "Calculates taxes, payment terms, and financing cost for an order."
     )
