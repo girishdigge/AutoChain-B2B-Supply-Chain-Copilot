@@ -9,6 +9,7 @@ from order_tool import OrderTool
 from validator_tool import ValidatorTool
 from inventory_tool import InventoryTool
 from pricing_tool import PricingTool
+from negotiation_agent import NegotiationAgent
 
 load_dotenv(override=True)
 
@@ -46,6 +47,8 @@ async def main():
         ]
     )
 
+    agent = NegotiationAgent()
+
     # Step 1: Get raw user input
     user_request = input("Enter your order request:\n")
 
@@ -57,7 +60,6 @@ async def main():
         "delivery_location": None,
     }
 
-    # crude extraction
     for word in user_request.split():
         if word.isdigit():
             collected_data["quantity"] = int(word)
@@ -81,7 +83,6 @@ async def main():
     validation_result = ValidatorTool().run(None, **collected_data)
     print(" ", validation_result)
 
-    # loop until valid
     while "❌" in validation_result:
         if "Invalid email" in validation_result:
             answer = ClarificationTool().run(
@@ -108,7 +109,6 @@ async def main():
     )
     print(" ", inv_result)
 
-    # negotiate shortages or alternatives
     while "❌" in inv_result:
         if "out of stock" in inv_result:
             new_model = ClarificationTool().run(
@@ -134,14 +134,25 @@ async def main():
         )
         print(" ", inv_result)
 
-    # Step 6: Pricing
+    # Step 6: Baseline Pricing
     print("\n💰 Pricing Info:")
     price_result = PricingTool().run(
         None, model=collected_data["model"], quantity=collected_data["quantity"]
     )
     print(" ", price_result)
 
-    # Step 7: Final Confirmation
+    # Step 7: Full Negotiation (Suppliers + Logistics + Finance)
+    print("\n🤝 Negotiation Phase:")
+    negotiation_result = agent.negotiate(
+        collected_data["model"],
+        collected_data["quantity"],
+        collected_data["delivery_location"],
+        region="EU",  # TODO: derive from location
+        urgency="urgent",  # TODO: derive from user input
+    )
+    print(" ", negotiation_result)
+
+    # Step 8: Final Confirmation
     confirmation = ClarificationTool().run(
         None,
         f"Do you want to confirm the order: {collected_data['quantity']}x {collected_data['model']} "
@@ -152,12 +163,11 @@ async def main():
         print("\n❌ Order cancelled by user.")
         return
 
-    # Step 8: Final Order
+    # Step 9: Place Order
     print("\n🎉 Final Output:")
     result = OrderTool().run(None, **collected_data)
     print(" ", result)
 
-    # Step 9: Save order
     save_order(collected_data)
 
 

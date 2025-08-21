@@ -46,28 +46,25 @@ class SupplierInput(BaseModel):
     )
 
 
-class SupplierTool(Tool[str]):
+class SupplierTool(Tool[Dict]):
     id: str = "supplier_tool"
     name: str = "Supplier Quote Tool"
     description: str = (
         "Fetches supplier quotes (MOQ, lead times, pricing tiers, bulk discounts)."
     )
     args_schema: Type[BaseModel] = SupplierInput
-    output_schema: tuple[str, str] = ("string", "Supplier quotes with pricing details")
+    output_schema: tuple[str, str] = ("json", "Supplier quotes with pricing details")
 
     def run(
         self, context: ToolRunContext, model: str, quantity: int, urgency: str
-    ) -> str:
+    ) -> Dict:
         suppliers = SUPPLIERS.get(model)
         if not suppliers:
-            return f"❌ Unknown model: {model}. No suppliers found."
+            return {"suppliers": []}
 
-        quotes = []
+        results = {"suppliers": []}
         for supplier in suppliers:
             if quantity < supplier["moq"]:
-                quotes.append(
-                    f"⚠️ {supplier['name']} - MOQ {supplier['moq']} required (requested {quantity})."
-                )
                 continue
 
             # Determine base unit price from tiered pricing
@@ -84,12 +81,14 @@ class SupplierTool(Tool[str]):
 
             total_price = unit_price * quantity
 
-            quote = (
-                f"✅ Supplier Quote from {supplier['name']}:\n"
-                f"   MOQ: {supplier['moq']}, Lead Time: {lead_time} weeks\n"
-                f"   Unit Price: ${unit_price:.2f}, Total: ${total_price:.2f}\n"
-                f"   Validity: 7 days\n"
+            results["suppliers"].append(
+                {
+                    "name": supplier["name"],
+                    "moq": supplier["moq"],
+                    "lead_time_weeks": lead_time,
+                    "unit_price": unit_price,
+                    "total_price": total_price,
+                }
             )
-            quotes.append(quote)
 
-        return "\n".join(quotes)
+        return results
