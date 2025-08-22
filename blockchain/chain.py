@@ -1,5 +1,5 @@
-from block import Block
-from anchor import Anchor
+from .block import Block
+from .anchor import Anchor
 
 
 class Chain:

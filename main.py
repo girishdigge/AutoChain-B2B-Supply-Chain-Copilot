@@ -27,17 +27,18 @@ from portia import (
 from portia.cli import CLIExecutionHooks
 from portia.execution_hooks import clarify_on_tool_calls
 
-from validator_tool import ValidatorTool
-from inventory_tool import InventoryTool
-from pricing_tool import PricingTool
-from supplier_tool import SupplierTool
-from logistics_tool import LogisticsTool
-from finance_tool import FinanceTool
-from order_tool import OrderTool
-from merge_tool import MergeFieldsTool
-from clarification_tool import ClarificationTool
-from distance_calculator_tool import DistanceCalculatorTool
-from stripe_payment import StripePaymentTool
+from tools.validator_tool import ValidatorTool
+from tools.inventory_tool import InventoryTool
+from tools.pricing_tool import PricingTool
+from tools.supplier_tool import SupplierTool
+from tools.logistics_tool import LogisticsTool
+from tools.finance_tool import FinanceTool
+from tools.order_tool import OrderTool
+from tools.merge_tool import MergeFieldsTool
+from tools.clarification_tool import ClarificationTool
+from tools.distance_calculator_tool import DistanceCalculatorTool
+from tools.stripe_payment import StripePaymentTool
+from tools.blockchain_tool import BlockchainTool
 
 load_dotenv(override=True)
 
@@ -192,6 +193,7 @@ def main():
             ClarificationTool(),
             DistanceCalculatorTool(),
             StripePaymentTool(),
+            BlockchainTool(),
         ]
     )
 
@@ -205,75 +207,87 @@ def main():
     portia = Portia(config=config, tools=tools, execution_hooks=exec_hooks)
 
     plan_text = """
-    The agent helps process purchase orders end-to-end.
+The agent helps process purchase orders end-to-end.
 
-    ### Workflow (robust):
-    1. Order Extraction
-    - Call order_extraction_tool to extract buyer_email, model, quantity, delivery_location from inbox.txt.
-    Output: $extracted_order
+### Workflow (robust):
+1. Order Extraction
+- Call order_extraction_tool to extract buyer_email, model, quantity, delivery_location from inbox.txt.
+Output: $extracted_order
+- Call blockchain_tool with step_name="order_extraction" and data=$extracted_order
 
-    2. Validation
-    - Call validator_tool with $extracted_order.
-    Output: $validation
+2. Validation
+- Call validator_tool with $extracted_order.
+Output: $validation
+- Call blockchain_tool with step_name="validation" and data=$validation
 
-    3. Clarify missing/invalid fields
-    - If $validation indicates missing or invalid fields:
-        - Ask the user one question at a time using clarification_tool until the missing fields are provided.
-        - Output: $clarified_fields (dict of clarified fields)
-    - If no fields are missing/invalid:
-        - Explicitly set $clarified_fields = {} (empty JSON object).
+3. Clarify missing/invalid fields
+- If $validation indicates missing or invalid fields:
+    - Ask the user one question at a time using clarification_tool until the missing fields are provided.
+    - Output: $clarified_fields (dict of clarified fields)
+- If no fields are missing/invalid:
+    - Explicitly set $clarified_fields = {} (empty JSON object, not text).
+- Call blockchain_tool with step_name="clarifications" and data=$clarified_fields
 
+4. Merge extracted + clarified into a single final record
+- Call merge_fields_tool with inputs: extracted=$extracted_order, clarified=$clarified_fields
+Output: $merged_fields
+- Call blockchain_tool with step_name="merge_fields" and data=$merged_fields
 
-    4. Merge extracted + clarified into a single final record
-    - Call merge_fields_tool with inputs: extracted=$extracted_order, clarified=$clarified_fields
-    Output: $merged_fields
+5. Re-validate merged fields (always)
+- Call validator_tool with $merged_fields.merged
+Output: $final_validated_fields
+- Call blockchain_tool with step_name="final_validation" and data=$final_validated_fields
 
-    5. Re-validate merged fields (always)
-    - Call validator_tool with $merged_fields.merged
-    Output: $final_validated_fields
-    Note: This step must run whether or not clarifications occurred, ensuring later steps have a consistent input.
+6. Inventory check
+- Call inventory_tool with $final_validated_fields.model and $final_validated_fields.quantity
+Output: $inventory_status
+- Call blockchain_tool with step_name="inventory_check" and data=$inventory_status
+- If inventory < requested:
+    - Present available quantity and ask user:
+    - "Only X units are available. Would you like to revise to X units, or choose another model, or cancel?"
+    - If user revises qty -> update $final_validated_fields.quantity and re-run pricing from step 8.
+    - If user chooses another model -> update $final_validated_fields.model and re-run inventory/pricing.
+    - If user cancels -> exit gracefully.
 
-    6. Inventory check
-    - Call inventory_tool with $final_validated_fields.model and $final_validated_fields.quantity
-    Output: $inventory_status
-    - If inventory < requested:
-        - Present available quantity and ask user:
-        - "Only X units are available. Would you like to revise to X units, or choose another model, or cancel?"
-        - If user revises qty -> update $final_validated_fields.quantity and re-run pricing from step 8.
-        - If user chooses another model -> update $final_validated_fields.model and re-run inventory/pricing.
-        - If user cancels -> exit gracefully.
+7. Pricing, supplier & logistics
+- Call pricing_tool with $final_validated_fields -> $pricing_info
+- Call blockchain_tool with step_name="pricing" and data=$pricing_info
+- Call supplier_tool with $final_validated_fields -> $supplier_quotes
+- Call blockchain_tool with step_name="supplier_quotes" and data=$supplier_quotes
+- Call logistics_tool with model, qty, delivery_location -> $shipping_info
+- Call blockchain_tool with step_name="logistics" and data=$shipping_info
 
-    7. Pricing, supplier & logistics
-    - Call pricing_tool with $final_validated_fields -> $pricing_info
-    - Call supplier_tool with $final_validated_fields -> $supplier_quotes
-    - Call logistics_tool with model, qty, delivery_location -> $shipping_info
+8. Finance & final total
+- Call finance_tool with $pricing_info and $shipping_info -> $finance_info (taxes, fees)
+- Call blockchain_tool with step_name="finance" and data=$finance_info
+- Compute final_total_usd = pricing_info.base * qty + shipping_info.shipping_cost + finance_info.taxes + finance_info.finance_cost
 
-    8. Finance & final total
-    - Call finance_tool with $pricing_info and $shipping_info -> $finance_info (taxes, fees)
-    - Compute final_total_usd = pricing_info.base * qty + shipping_info.shipping_cost + finance_info.taxes + finance_info.finance_cost
+9. Final offer & user confirmation
+- Present a clear offer (unit price, qty, shipping, taxes, final_total_usd, ETA) and ask user to confirm.
+If user declines -> cancel gracefully.
+- Call blockchain_tool with step_name="final_offer" and data={"final_total_usd": final_total_usd}
 
-    9. Final offer & user confirmation
-    - Present a clear offer (unit price, qty, shipping, taxes, final_total_usd, ETA) and ask user to confirm.
-    If user declines -> cancel gracefully.
+10. On confirmation: create Stripe checkout session
+- Call stripe_payment_tool with total_usd = final_total_usd, order_id (unique), email, model, qty
+Output: $payment_result (contains payment_link)
+- Call blockchain_tool with step_name="payment" and data=$payment_result
 
-    10. On confirmation: create Stripe checkout session
-    - Call stripe_payment_tool with total_usd = final_total_usd, order_id (unique), email, model, qty
-    Output: $payment_result (contains payment_link)
+11. Persist and notify
+- Save order record locally with status 'AWAITING_PAYMENT', include order_id, buyer_email, model, qty, final_total_usd, payment_link
+- Call blockchain_tool with step_name="persist_order" and data={"order_id": order_id, "status": "AWAITING_PAYMENT"}
+- Call built-in Portia Gmail tool (portia:google:gmail:send_email) to email the buyer: include complete order details including order_id, status, payment_link
 
-    11. Persist and notify
-    - Save order record locally with status 'AWAITING_PAYMENT', include order_id, buyer_email, model, qty, final_total_usd, payment_link
-    - Call built-in Portia Gmail tool (portia:google:gmail:send_email) to email the buyer: include complete order details including order_id, status, payment_link
+12. Return the final structured output
+- Merge all fields from the validated and enriched order (supplier, base_price_usd, shipping_cost_usd, taxes_usd, finance_cost_usd, final_total_usd, eta_days, chosen_carrier, transcript).
+- Also include order_id, status="AWAITING_PAYMENT", payment_link, notifications_sent=true, buyer_email, model, quantity, delivery_location.
+- Output must be a single JSON object strictly following the FinalOffer schema.
+- Call blockchain_tool with step_name="final_output" and data=$FinalOffer
 
-    12. Return the final structured output
-    - Merge all fields from the validated and enriched order (supplier, base_price_usd, shipping_cost_usd, taxes_usd, finance_cost_usd, final_total_usd, eta_days, chosen_carrier, transcript).
-    - Also include order_id, status="AWAITING_PAYMENT", payment_link, notifications_sent=true, buyer_email, model, quantity, delivery_location.
-    - Output must be a single JSON object strictly following the FinalOffer schema.
-
-    Notes:
-    - Always prefer polite natural clarification.
-    - Do not proceed to payment until the user explicitly confirms.
-    - Ensure that a single canonical final_validated_fields object exists for all downstream steps.
-    """
+Notes:
+- Always prefer polite natural clarification.
+- Do not proceed to payment until the user explicitly confirms.
+- Ensure that a single canonical final_validated_fields object exists for all downstream steps.
+"""
 
     print("\n=== Generated Plan ===")
     plan = portia.plan(plan_text)
