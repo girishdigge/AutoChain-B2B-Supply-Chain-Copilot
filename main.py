@@ -1,32 +1,29 @@
-"""
-Portia-driven pipeline:
-- LLM-based structured extraction
-- Validation (with automatic clarification hooks)
-- Inventory check
-- Supplier/logistics/finance negotiation
-- Final offer + human approval before placing an order
-"""
-
+# main.py - Enhanced WebSocket Order Processing System
 import json
 import os
-from dotenv import load_dotenv
-from typing import Type, Optional
-from pydantic import BaseModel, Field
+import asyncio
+import uuid
+import logging
+from datetime import datetime
+from typing import Dict, List, Optional, Any
+import threading
 
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+import uvicorn
+
+from dotenv import load_dotenv
 from portia import (
     Config,
     DefaultToolRegistry,
     InMemoryToolRegistry,
     Portia,
-    Tool,
-    ToolHardError,
-    ToolRunContext,
-    Message,
     PlanRunState,
+    ToolRunContext,
 )
-from portia.cli import CLIExecutionHooks
-from portia.execution_hooks import clarify_on_tool_calls
 
+# Import existing tools
 from tools.validator_tool import ValidatorTool
 from tools.inventory_tool import InventoryTool
 from tools.pricing_tool import PricingTool
@@ -39,148 +36,104 @@ from tools.clarification_tool import ClarificationTool
 from tools.distance_calculator_tool import DistanceCalculatorTool
 from tools.stripe_payment import StripePaymentTool
 from tools.blockchain_tool import BlockchainTool
+from tools.order_extraction_tool import OrderExtractionTool
+
+
+# Import new websocket components
+from websocket_manager import WebSocketManager
+from clarification_handler import ClarificationHandler
+from processing_orchestrator import ProcessingOrchestrator
+from websocket_tool_wrapper import create_websocket_tool_wrapper
 
 load_dotenv(override=True)
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Constants
 ORDERS_FILE = "orders.json"
 INBOX_FILE = "inbox.txt"
-if os.path.exists(INBOX_FILE):
-    with open(INBOX_FILE, "r", encoding="utf-8") as f:
-        inbox_text = f.read().strip()
-else:
-    inbox_text = ""
-    print(f"⚠️ {INBOX_FILE} not found. Please place your order email in this file.")
 
 
-# ----------------------------
-# Structured schemas
-# ----------------------------
-class ExtractionOutput(BaseModel):
-    buyer_email: Optional[str] = Field(None, description="Email of the buyer")
-    model: Optional[str] = Field(None, description="Requested model name / SKU")
-    quantity: Optional[int] = Field(None, description="Quantity requested")
-    delivery_location: Optional[str] = Field(None, description="Delivery destination")
-
-
+# Final offer model (keeping for compatibility)
 class FinalOffer(BaseModel):
     buyer_email: str
     model: str
     quantity: int
     delivery_location: str
-    supplier: str | None = None
-    base_price_usd: float | None = None
-    shipping_cost_usd: float | None = None
-    taxes_usd: float | None = None
-    finance_cost_usd: float | None = None
-    final_total_usd: float | None = None
-    eta_days: int | None = None
-    chosen_carrier: str | None = None
-    transcript: dict | None = None
+    supplier: Optional[str] = None
+    base_price_usd: Optional[float] = None
+    shipping_cost_usd: Optional[float] = None
+    taxes_usd: Optional[float] = None
+    finance_cost_usd: Optional[float] = None
+    final_total_usd: Optional[float] = None
+    eta_days: Optional[int] = None
+    chosen_carrier: Optional[str] = None
+    transcript: Optional[dict] = None
+    order_id: Optional[str] = None
+    status: Optional[str] = None
+    payment_link: Optional[str] = None
+    notifications_sent: Optional[bool] = None
 
 
-# ----------------------------
-# LLM-based Extraction Tool
-# ----------------------------
-class OrderExtractionTool(Tool):
-    """
-    Extracts order details (buyer_email, model, quantity, delivery_location)
-    directly from inbox.txt using LLM.
-    """
-
-    id: str = "order_extraction_tool"
-    name: str = "OrderExtractionTool"
-    description: str = (
-        "Reads inbox.txt and extracts buyer_email, model, quantity, delivery_location. "
-        "Missing fields are allowed (None), which will trigger clarification later."
-    )
-    output_schema: tuple[str, str] = (
-        "ExtractionOutput",
-        "Structured extraction with buyer_email, model, quantity, delivery_location fields",
-    )
-
-    def run(self, context: ToolRunContext) -> dict:
-        if not inbox_text:
-            raise ToolHardError("Inbox text is empty. Please add content to inbox.txt.")
-
-        llm = context.config.get_default_model()
-        system = (
-            "You are a JSON-extractor assistant. Extract the buyer email, model name (SKU), "
-            "quantity (integer), and the delivery location (city/country) from the user's free-form order text. "
-            "Output ONLY a JSON object with keys: buyer_email, model, quantity, delivery_location. "
-            "If a value is unknown, output null for that field."
-        )
-        user_msg = f"Order text:\n{inbox_text}\n\nReturn only a JSON object."
-        messages = [
-            Message(role="system", content=system),
-            Message(role="user", content=user_msg),
-        ]
-
-        response = llm.get_response(messages)
-        text_out = response.content.strip()
-
-        try:
-            start = text_out.find("{")
-            end = text_out.rfind("}")
-            if start == -1 or end == -1:
-                raise ValueError("No JSON object detected in LLM response.")
-            json_text = text_out[start : end + 1]
-            obj = json.loads(json_text)
-
-            buyer_email = obj.get("buyer_email") or obj.get("email")
-            model = obj.get("model") or obj.get("sku")
-            quantity = obj.get("quantity") or obj.get("qty")
-            delivery_location = obj.get("delivery_location") or obj.get("location")
-
-            if quantity is not None:
-                try:
-                    quantity = int(quantity)
-                except (ValueError, TypeError):
-                    raise ToolHardError(
-                        f"Could not convert quantity to integer: {quantity}"
-                    )
-
-            return {
-                "buyer_email": buyer_email,
-                "model": model,
-                "quantity": quantity,
-                "delivery_location": delivery_location,
-            }
-
-        except ToolHardError:
-            raise
-        except Exception as e:
-            raise ToolHardError(
-                f"Failed to parse LLM JSON output: {e}\nRaw output: {text_out}"
-            )
+# Helper: save order locally (atomic + thread-safe)
+_orders_file_lock = threading.Lock()
 
 
-# ----------------------------
-# Helper: persist orders
-# ----------------------------
 def save_order(order_obj: dict):
-    if os.path.exists(ORDERS_FILE):
-        with open(ORDERS_FILE, "r") as f:
+    """Append an order to ORDERS_FILE atomically (simple lock + temp file)."""
+    with _orders_file_lock:
+        if os.path.exists(ORDERS_FILE):
             try:
-                orders = json.load(f)
-            except json.JSONDecodeError:
+                with open(ORDERS_FILE, "r", encoding="utf-8") as f:
+                    orders = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
                 orders = []
-    else:
-        orders = []
-    orders.append(order_obj)
-    with open(ORDERS_FILE, "w") as f:
-        json.dump(orders, f, indent=2)
-    print(f"📝 Order saved to {ORDERS_FILE}")
+        else:
+            orders = []
+
+        orders.append(order_obj)
+
+        temp_path = ORDERS_FILE + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as tf:
+            json.dump(orders, tf, indent=2)
+            tf.flush()
+            os.fsync(tf.fileno())
+
+        # atomic replace
+        os.replace(temp_path, ORDERS_FILE)
+    logger.info(f"📝 Order saved to {ORDERS_FILE}")
 
 
-# ----------------------------
-# Main: build registries, plan, run
-# ----------------------------
-def main():
-    config = Config.from_default()
+# Enhanced WebSocket System - Initialize components
+websocket_manager = WebSocketManager()
+clarification_handler = ClarificationHandler(websocket_manager)
+orchestrator = ProcessingOrchestrator(websocket_manager, clarification_handler)
 
-    # Local tools you already have implemented
-    local_tools = InMemoryToolRegistry.from_local_tools(
-        [
+
+# Function to update event loop references when server starts
+def update_event_loop_references():
+    """Update event loop references in all components"""
+    try:
+        main_loop = asyncio.get_running_loop()
+        websocket_manager._main_loop = main_loop
+        logger.info(f"[Main] Updated websocket manager with main loop: {main_loop}")
+    except RuntimeError:
+        logger.warning("[Main] No running event loop found during startup")
+
+
+# Removed EnhancedWebSocketClarificationTool - using WebSocketClarificationToolWrapper instead
+
+
+# Enhanced Order Processor with WebSocket Integration
+class PortiaOrderProcessor:
+    def __init__(self):
+        self.config = Config.from_default()
+        self.setup_tools()
+
+    def setup_tools(self):
+        self.base_tools = [
             OrderExtractionTool(),
             ValidatorTool(),
             InventoryTool(),
@@ -190,171 +143,391 @@ def main():
             FinanceTool(),
             OrderTool(),
             MergeFieldsTool(),
-            ClarificationTool(),
+            ClarificationTool(),  # Use base ClarificationTool - will be wrapped with websocket functionality
             DistanceCalculatorTool(),
             StripePaymentTool(),
             BlockchainTool(),
         ]
-    )
 
-    tools = DefaultToolRegistry(config=config) + local_tools
+        self.default_registry = DefaultToolRegistry(config=self.config)
 
-    # Execution hooks: ask for clarifications on validator_tool and approval before order_tool
-    exec_hooks = CLIExecutionHooks(
-        before_tool_call=clarify_on_tool_calls(["validator_tool", "order_tool"])
-    )
+    async def process_order(
+        self,
+        order_text: str,
+        websocket_manager: WebSocketManager,
+        client_id: str,
+        run_id: str = None,
+        orchestrator: ProcessingOrchestrator = None,
+    ) -> Dict[str, Any]:
+        if not run_id:
+            run_id = str(uuid.uuid4())
 
-    portia = Portia(config=config, tools=tools, execution_hooks=exec_hooks)
+        try:
+            # Write order text to inbox file
+            with open(INBOX_FILE, "w", encoding="utf-8") as f:
+                f.write(order_text)
 
-    plan_text = """
-The agent helps process purchase orders end-to-end.
+            # Websocket context will be handled by WebSocketClarificationToolWrapper
 
-### Workflow (robust):
-1. Order Extraction
-- Call order_extraction_tool to extract buyer_email, model, quantity, delivery_location from inbox.txt.
-Output: $extracted_order
-- Call blockchain_tool with step_name="order_extraction" and data=$extracted_order
+            # Send initialization status
+            if orchestrator:
+                await orchestrator.send_phase_transition(
+                    run_id, "initialization", "Initializing order processing workflow"
+                )
 
-2. Validation
-- Call validator_tool with $extracted_order.
-Output: $validation
-- Call blockchain_tool with step_name="validation" and data=$validation
+            plan_text = """
+    Process purchase orders efficiently with complete workflow.
 
-3. Clarify missing/invalid fields
-- If $validation indicates missing or invalid fields:
-    - Ask the user one question at a time using clarification_tool until the missing fields are provided.
-    - Output: $clarified_fields (dict of clarified fields)
-- If no fields are missing/invalid:
-    - Explicitly set $clarified_fields = {} (empty JSON object, not text).
-- Call blockchain_tool with step_name="clarifications" and data=$clarified_fields
+    1. Extract order from inbox.txt
+    - Call order_extraction_tool
+    Output: $order
 
-4. Merge extracted + clarified into a single final record
-- Call merge_fields_tool with inputs: extracted=$extracted_order, clarified=$clarified_fields
-Output: $merged_fields
-- Call blockchain_tool with step_name="merge_fields" and data=$merged_fields
+    2. Validate order data
+    - Call validator_tool with $order
+    Output: $validation
 
-5. Re-validate merged fields (always)
-- Call validator_tool with $merged_fields.merged
-Output: $final_validated_fields
-- Call blockchain_tool with step_name="final_validation" and data=$final_validated_fields
+    3. Get missing fields (if needed)
+    - If $validation.missing_fields is not empty, use clarification_tool to get them
+    - Otherwise, skip this step
+    Output: $clarified (optional)
 
-6. Inventory check
-- Call inventory_tool with $final_validated_fields.model and $final_validated_fields.quantity
-Output: $inventory_status
-- Call blockchain_tool with step_name="inventory_check" and data=$inventory_status
-- If inventory < requested:
-    - Present available quantity and ask user:
-    - "Only X units are available. Would you like to revise to X units, or choose another model, or cancel?"
-    - If user revises qty -> update $final_validated_fields.quantity and re-run pricing from step 8.
-    - If user chooses another model -> update $final_validated_fields.model and re-run inventory/pricing.
-    - If user cancels -> exit gracefully.
+    4. Merge order data
+    - Call merge_fields_tool with $order and $clarified (if available)
+    - This creates the final validated order
+    Output: $validated_order
 
-7. Pricing, supplier & logistics
-- Call pricing_tool with $final_validated_fields -> $pricing_info
-- Call blockchain_tool with step_name="pricing" and data=$pricing_info
-- Call supplier_tool with $final_validated_fields -> $supplier_quotes
-- Call blockchain_tool with step_name="supplier_quotes" and data=$supplier_quotes
-- Call logistics_tool with model, qty, delivery_location -> $shipping_info
-- Call blockchain_tool with step_name="logistics" and data=$shipping_info
+    5. Check inventory
+    - Call inventory_tool with $validated_order
+    - If out of stock, use clarification_tool for alternatives
+    Output: $inventory_result
 
-8. Finance & final total
-- Call finance_tool with $pricing_info and $shipping_info -> $finance_info (taxes, fees)
-- Call blockchain_tool with step_name="finance" and data=$finance_info
-- Compute final_total_usd = pricing_info.base * qty + shipping_info.shipping_cost + finance_info.taxes + finance_info.finance_cost
+    6. Get pricing
+    - Call pricing_tool with $validated_order and $inventory_result
+    Output: $pricing
 
-9. Final offer & user confirmation
-- Present a clear offer (unit price, qty, shipping, taxes, final_total_usd, ETA) and ask user to confirm.
-If user declines -> cancel gracefully.
-- Call blockchain_tool with step_name="final_offer" and data={"final_total_usd": final_total_usd}
+    7. Find suppliers
+    - Call supplier_tool with $validated_order
+    Output: $suppliers
 
-10. On confirmation: create Stripe checkout session
-- Call stripe_payment_tool with total_usd = final_total_usd, order_id (unique), email, model, qty
-Output: $payment_result (contains payment_link)
-- Call blockchain_tool with step_name="payment" and data=$payment_result
+    8. Calculate logistics
+    - Call logistics_tool with $validated_order and $suppliers
+    Output: $logistics
 
-11. Persist and notify
-- Save order record locally with status 'AWAITING_PAYMENT', include order_id, buyer_email, model, qty, final_total_usd, payment_link
-- Call blockchain_tool with step_name="persist_order" and data={"order_id": order_id, "status": "AWAITING_PAYMENT"}
-- Call built-in Portia Gmail tool (portia:google:gmail:send_email) to email the buyer: include complete order details including order_id, status, payment_link
+    9. Calculate finance terms
+    - Call finance_tool with $validated_order, $pricing, and $logistics
+    Output: $finance
 
-12. Return the final structured output
-- Merge all fields from the validated and enriched order (supplier, base_price_usd, shipping_cost_usd, taxes_usd, finance_cost_usd, final_total_usd, eta_days, chosen_carrier, transcript).
-- Also include order_id, status="AWAITING_PAYMENT", payment_link, notifications_sent=true, buyer_email, model, quantity, delivery_location.
-- Output must be a single JSON object strictly following the FinalOffer schema.
-- Call blockchain_tool with step_name="final_output" and data=$FinalOffer
+    10. Present final offer
+    - Use clarification_tool to show complete offer and get confirmation
+    Output: $confirmation
 
-Notes:
-- Always prefer polite natural clarification.
-- Do not proceed to payment until the user explicitly confirms.
-- Ensure that a single canonical final_validated_fields object exists for all downstream steps.
-"""
+    11. Create payment session
+    - Call stripe_payment_tool with $finance total amount and order details
+    - Generate payment link for customer
+    Output: $payment
 
-    print("\n=== Generated Plan ===")
-    plan = portia.plan(plan_text)
-    print(plan.pretty_print())
+    12. Finalize order
+    - Call order_tool with all data including payment information
+    - Create final order record with payment link
+    Output: $final_order
 
-    print(
-        "\n▶ Running plan (you will be prompted for clarifications/approvals if required)...\n"
-    )
-    plan_run = portia.run_plan(plan, structured_output_schema=FinalOffer)
+    13. Send confirmation email
+    - Call built-in Portia Gmail tool (portia:google:gmail:send_email) to email the buyer
+    - Include payment link, order summary, and next steps in the email body
+    Output: $email_sent
 
-    # Check result
-    if plan_run.state == PlanRunState.NEED_CLARIFICATION:
-        print(
-            "Plan run paused and needs clarification. Inspect logs/console for prompts."
-        )
-    elif plan_run.state != PlanRunState.COMPLETE:
-        print(f"Plan run ended with state {plan_run.state}. See logs for errors.")
-    else:
-        # Check if we have structured output
-        if hasattr(plan_run.outputs, "final_output") and plan_run.outputs.final_output:
-            try:
-                # Try to parse the final output as FinalOffer
-                final_output_value = plan_run.outputs.final_output.value
+    Execute all steps sequentially. Ensure payment link is generated and email is sent.
+    """
 
-                # If the final output is a string, try to extract JSON from it
-                if isinstance(final_output_value, str):
-                    import re
-                    import json
+            # Send planning step update
+            if orchestrator:
+                from websocket_models import StepUpdate
 
-                    # Look for JSON in the string
-                    json_match = re.search(
-                        r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", final_output_value
-                    )
-                    if json_match:
-                        json_str = json_match.group()
-                        try:
-                            final_data = json.loads(json_str)
-                            final: FinalOffer = FinalOffer.model_validate(final_data)
-                            print("\n✅ Plan completed. Final Offer:")
-                            print(final.model_dump_json(indent=2))
-                            save_order(final.model_dump())
-                        except (json.JSONDecodeError, Exception) as e:
-                            print(f"Could not parse JSON from final output: {e}")
-                            print(f"Raw final output: {final_output_value}")
-                    else:
-                        print("No JSON found in final output.")
-                        print(f"Raw final output: {final_output_value}")
-                else:
-                    # Try direct validation
-                    final: FinalOffer = FinalOffer.model_validate(final_output_value)
-                    print("\n✅ Plan completed. Final Offer:")
-                    print(final.model_dump_json(indent=2))
-                    save_order(final.model_dump())
+                await orchestrator.send_step_update(
+                    run_id,
+                    StepUpdate(
+                        step_id="planning",
+                        step_name="Generating execution plan",
+                        status="started",
+                    ),
+                )
 
-            except Exception as e:
-                print(f"Error validating final output: {e}")
-                print(f"Final output type: {type(plan_run.outputs.final_output.value)}")
-                print(f"Final output value: {plan_run.outputs.final_output.value}")
-        else:
-            print("No structured output available in plan results.")
-            print(
-                "Plan completed successfully but without the expected FinalOffer structure."
+            # Create enhanced tool wrappers
+            wrapped_tools = []
+            for tool in self.base_tools:
+                tool_name = getattr(tool, "name", getattr(tool, "id", "unknown"))
+                logger.info(f"[PortiaOrderProcessor] Wrapping tool: {tool_name}")
+                wrapped_tool = create_websocket_tool_wrapper(
+                    tool, orchestrator, websocket_manager, clarification_handler
+                )
+                wrapped_tools.append(wrapped_tool)
+
+            # Set run_id and client_id in context for tools
+            for tool in wrapped_tools:
+                if hasattr(tool, "run_id"):
+                    tool.run_id = run_id
+                if hasattr(tool, "client_id"):
+                    tool.client_id = client_id
+                # Set global context for clarification tools
+                if hasattr(tool, "set_global_context"):
+                    tool.set_global_context(run_id, client_id)
+
+            local_tools = InMemoryToolRegistry.from_local_tools(wrapped_tools)
+
+            # Log the tools being registered
+            logger.info(
+                f"[PortiaOrderProcessor] Registering {len(wrapped_tools)} wrapped tools"
+            )
+            for tool in wrapped_tools:
+                tool_name = getattr(tool, "name", getattr(tool, "id", "unknown"))
+                tool_type = type(tool).__name__
+                logger.info(f"[PortiaOrderProcessor] - {tool_name} ({tool_type})")
+
+            # Use only local tools to ensure wrapped tools are used
+            local_tools = InMemoryToolRegistry.from_local_tools(wrapped_tools)
+            tools_for_run = self.default_registry + local_tools
+            logger.info(
+                "[PortiaOrderProcessor] Using only wrapped local tools (not default registry)"
             )
 
-    # done
-    print("Finished.")
+            portia = Portia(config=self.config, tools=tools_for_run)
+
+            plan = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: portia.plan(plan_text)
+            )
+
+            # Send planning completed update
+            if orchestrator:
+                await orchestrator.send_step_update(
+                    run_id,
+                    StepUpdate(
+                        step_id="planning",
+                        step_name="Plan generated successfully",
+                        status="completed",
+                        output={
+                            "plan_id": (
+                                str(plan.id) if hasattr(plan, "id") else "unknown"
+                            )
+                        },
+                    ),
+                )
+
+                # Set estimated total steps for progress tracking
+                estimated_steps = 13  # Based on our plan: extract, validate, clarify, merge, inventory, pricing, supplier, logistics, finance, offer, payment, order, email
+                if run_id in orchestrator.active_sessions:
+                    orchestrator.active_sessions[run_id][
+                        "total_steps"
+                    ] = estimated_steps
+
+                await orchestrator.send_phase_transition(
+                    run_id, "execution", "Executing order processing plan"
+                )
+
+            # Execute plan with context
+            def run_plan_with_context():
+                try:
+                    # Set thread-local context for tools in executor thread
+                    from websocket_tool_wrapper import set_websocket_context
+
+                    set_websocket_context(
+                        run_id, client_id, orchestrator, clarification_handler
+                    )
+                    logger.info(
+                        f"[PortiaOrderProcessor] Set thread-local context in executor thread: run_id={run_id}, client_id={client_id}"
+                    )
+
+                    # Run plan with structured output schema
+                    plan_run = portia.run_plan(
+                        plan, structured_output_schema=FinalOffer
+                    )
+                    return plan_run
+                except Exception as e:
+                    logger.error(
+                        f"[PortiaOrderProcessor] Error during plan execution: {e}"
+                    )
+                    raise
+
+            plan_run = await asyncio.get_event_loop().run_in_executor(
+                None, run_plan_with_context
+            )
+
+            if plan_run.state == PlanRunState.COMPLETE:
+                final_output = None
+
+                if (
+                    hasattr(plan_run.outputs, "final_output")
+                    and plan_run.outputs.final_output
+                ):
+                    try:
+                        final_output_value = plan_run.outputs.final_output.value
+
+                        if isinstance(final_output_value, str):
+                            import re
+
+                            json_match = re.search(
+                                r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", final_output_value
+                            )
+                            if json_match:
+                                json_str = json_match.group()
+                                try:
+                                    final_data = json.loads(json_str)
+                                    final = FinalOffer.model_validate(final_data)
+                                    final_output = final.model_dump()
+                                    save_order(final_output)
+                                except Exception as e:
+                                    print(
+                                        f"[PortiaOrderProcessor] Could not parse JSON from final output: {e}"
+                                    )
+                        else:
+                            final = FinalOffer.model_validate(final_output_value)
+                            final_output = final.model_dump()
+                            save_order(final_output)
+
+                    except Exception as e:
+                        print(
+                            f"[PortiaOrderProcessor] Error validating final output: {e}"
+                        )
+
+                # Send completion notification
+                if orchestrator:
+                    await orchestrator.complete_processing(
+                        run_id,
+                        {
+                            "status": "completed",
+                            "final_output": final_output,
+                            "run_id": run_id,
+                        },
+                    )
+
+                return {
+                    "status": "completed",
+                    "final_output": final_output,
+                    "run_id": run_id,
+                }
+            else:
+                error_msg = f"Plan run ended with state {plan_run.state}"
+                if orchestrator:
+                    await orchestrator.handle_processing_error(
+                        run_id, Exception(error_msg)
+                    )
+                return {"status": "error", "error": error_msg, "run_id": run_id}
+
+        except Exception as e:
+            error_msg = f"Error during order processing: {str(e)}"
+            logger.error(f"[PortiaOrderProcessor] {error_msg}")
+            if orchestrator:
+                await orchestrator.handle_processing_error(run_id, e)
+            return {"status": "error", "error": error_msg, "run_id": run_id}
+
+
+# FastAPI app + endpoints
+app = FastAPI(title="Enhanced Portia Order Processing API", version="2.0.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Initialize processor
+processor = PortiaOrderProcessor()
+
+
+@app.get("/")
+async def read_root():
+    return {"message": "Portia Order Processing API is running"}
+
+
+@app.get("/orders")
+async def get_orders():
+    if os.path.exists(ORDERS_FILE):
+        with open(ORDERS_FILE, "r") as f:
+            try:
+                orders = json.load(f)
+                return {"orders": orders}
+            except json.JSONDecodeError:
+                return {"orders": []}
+    return {"orders": []}
+
+
+@app.get("/health")
+async def health_check():
+    """Enhanced health check with websocket statistics"""
+    stats = websocket_manager.get_connection_stats()
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "websocket_stats": stats,
+        "clarification_stats": clarification_handler.get_stats(),
+        "processing_stats": orchestrator.get_session_stats(),
+    }
+
+
+@app.get("/ws/stats")
+async def websocket_stats():
+    """Get detailed websocket statistics"""
+    return {
+        "connection_stats": websocket_manager.get_connection_stats(),
+        "clarification_stats": clarification_handler.get_stats(),
+        "processing_stats": orchestrator.get_session_stats(),
+        "active_sessions": orchestrator.get_active_sessions(),
+    }
+
+
+@app.post("/ws/cleanup")
+async def cleanup_old_data():
+    """Cleanup old clarifications and sessions"""
+    await clarification_handler.cleanup_old_clarifications()
+    return {"message": "Cleanup completed"}
+
+
+@app.websocket("/ws/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    """Enhanced WebSocket endpoint with proper message handling"""
+
+    # Update event loop references
+    update_event_loop_references()
+
+    # Connect client
+    connected = await websocket_manager.connect(websocket, client_id)
+    if not connected:
+        logger.error(f"Failed to connect client {client_id}")
+        return
+
+    try:
+        while True:
+            try:
+                # Receive message
+                raw_message = await websocket.receive_text()
+
+                # Handle message through manager
+                await websocket_manager.handle_message(client_id, raw_message)
+
+            except WebSocketDisconnect:
+                logger.info(f"Client {client_id} disconnected normally")
+                break
+            except Exception as e:
+                logger.error(f"Error handling message from {client_id}: {e}")
+                await websocket_manager.send_error(
+                    client_id, "message_error", f"Error processing message: {str(e)}"
+                )
+                break
+
+    except Exception as e:
+        logger.error(f"WebSocket error for client {client_id}: {e}")
+    finally:
+        # Cleanup connection
+        await websocket_manager.disconnect(client_id, "Connection closed")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on application shutdown"""
+    logger.info("Shutting down websocket manager...")
+    await websocket_manager.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    logger.info("Starting Enhanced Portia Order Processing API v2.0.0")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

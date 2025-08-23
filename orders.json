@@ -4,5 +4,24 @@
     "model": "Land Rover",
     "quantity": 2,
     "delivery_location": "Pune"
+  },
+  {
+    "buyer_email": "thegame.girish@gmail.com",
+    "model": "Harrier",
+    "quantity": 2,
+    "delivery_location": "Pune",
+    "supplier": "AutoMakers Ltd",
+    "base_price_usd": 40000.0,
+    "shipping_cost_usd": 6240.0,
+    "taxes_usd": 10123.2,
+    "finance_cost_usd": 0.0,
+    "final_total_usd": 66363.2,
+    "eta_days": 3,
+    "chosen_carrier": "DHL",
+    "transcript": null,
+    "order_id": "thegame.girish@gmail.com-Harrier-2",
+    "status": "pending_payment",
+    "payment_link": "https://checkout.stripe.com/c/pay/cs_test_a1lJlzFsurwg63GPay533xCxNfZPIitNu6Lrp8IqsTHMByCU4itd5h4923#fidkdWxOYHwnPyd1blpxYHZxWjA0V3xUdXVDSH98XFx9R1B3NUtnZHZ8fH1XdVdpVmZ0RFdORDB1MVJHYHRdTDRvQlZGQWJHVV09TU1NMDVCRmpAVDY0TnBmNEg9c39VXX92PWNUczd%2FREl%2FNTVLb2BnMnBTYicpJ2N3amhWYHdzYHcnP3F3cGApJ2lkfGpwcVF8dWAnPyd2bGtiaWBabHFgaCcpJ2BrZGdpYFVpZGZgbWppYWB3dic%2FcXdwYHgl",
+    "notifications_sent": true
   }
 ]

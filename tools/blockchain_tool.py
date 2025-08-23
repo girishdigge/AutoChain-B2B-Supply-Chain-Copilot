@@ -3,7 +3,8 @@ from typing import Type
 from pydantic import BaseModel, Field
 from portia import Tool, ToolRunContext
 from blockchain_client import anchor_step
-from storage import save_step
+
+# from apps.app.storage import save_step
 from datetime import datetime
 
 
@@ -45,7 +46,7 @@ class BlockchainTool(Tool[str]):
         }
 
         # 3. Persist to disk
-        save_step(order_id, step_name, record)
+        # save_step(order_id, step_name, record)
 
         # 4. Return just the hash for workflow continuity
         return result["hash"]

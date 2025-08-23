@@ -21,7 +21,7 @@ SUPPLIERS: Dict[str, List[dict]] = {
     "Safari": [
         {
             "name": "SUV World",
-            "moq": 2,
+            "moq": 5,
             "lead_time_weeks": 3,
             "pricing_tiers": [(1, 22000), (5, 21000), (10, 20000)],
         }
