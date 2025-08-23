@@ -38,6 +38,10 @@ from tools.stripe_payment import StripePaymentTool
 from tools.blockchain_tool import BlockchainTool
 from tools.order_extraction_tool import OrderExtractionTool
 
+# Import blockchain integration components
+from blockchain_client import health_check_polygon_integration
+from blockchain.config import PolygonConfig
+
 
 # Import new websocket components
 from websocket_manager import WebSocketManager
@@ -130,9 +134,62 @@ def update_event_loop_references():
 class PortiaOrderProcessor:
     def __init__(self):
         self.config = Config.from_default()
+        self.blockchain_status = self._check_blockchain_integration()
         self.setup_tools()
 
+    def _check_blockchain_integration(self) -> dict:
+        """Check blockchain integration status and configuration"""
+        try:
+            # Check Polygon integration health
+            polygon_health = health_check_polygon_integration()
+
+            # Check configuration
+            config_status = "valid"
+            config_errors = []
+
+            try:
+                polygon_config = PolygonConfig.from_env()
+                logger.info(
+                    f"Polygon configuration loaded: network={polygon_config.network_name}"
+                )
+            except Exception as e:
+                config_status = "invalid"
+                config_errors.append(str(e))
+                logger.warning(f"Polygon configuration error: {e}")
+
+            blockchain_status = {
+                "polygon_integration": polygon_health,
+                "configuration": {"status": config_status, "errors": config_errors},
+                "overall_status": (
+                    "healthy"
+                    if polygon_health.get("status") in ["healthy", "degraded"]
+                    else "local_only"
+                ),
+            }
+
+            logger.info(
+                f"Blockchain integration status: {blockchain_status['overall_status']}"
+            )
+            return blockchain_status
+
+        except Exception as e:
+            logger.error(f"Error checking blockchain integration: {e}")
+            return {
+                "polygon_integration": {"status": "error", "error": str(e)},
+                "configuration": {"status": "error", "errors": [str(e)]},
+                "overall_status": "local_only",
+            }
+
     def setup_tools(self):
+        # Initialize blockchain tool with enhanced configuration
+        blockchain_tool = BlockchainTool()
+
+        # Log blockchain tool status
+        polygon_status = blockchain_tool.get_polygon_service_status()
+        logger.info(
+            f"Blockchain tool Polygon status: {polygon_status.get('status', 'unknown')}"
+        )
+
         self.base_tools = [
             OrderExtractionTool(),
             ValidatorTool(),
@@ -146,7 +203,7 @@ class PortiaOrderProcessor:
             ClarificationTool(),  # Use base ClarificationTool - will be wrapped with websocket functionality
             DistanceCalculatorTool(),
             StripePaymentTool(),
-            BlockchainTool(),
+            blockchain_tool,  # Use the configured blockchain tool instance
         ]
 
         self.default_registry = DefaultToolRegistry(config=self.config)
@@ -176,6 +233,8 @@ class PortiaOrderProcessor:
                 )
 
             plan_text = """
+    Process purchase orders efficiently with complete workflow.
+    
     Process purchase orders efficiently with complete workflow.
 
     1. Extract order from inbox.txt
@@ -231,12 +290,19 @@ class PortiaOrderProcessor:
     - Create final order record with payment link
     Output: $final_order
 
-    13. Send confirmation email
+    13. Record order on blockchain
+    - Call polygon_tool with $final_order (order ID, buyer email, order summary, timestamp)
+    - Store returned tx_hash
+    Output: $blockchain_tx
+
+    14. Send confirmation email
     - Call built-in Portia Gmail tool (portia:google:gmail:send_email) to email the buyer
-    - Include payment link, order summary, and next steps in the email body
-    Output: $email_sent
+    - Include payment link, order summary, and next steps in the email body - Include blockchain transaction as a PolygonScan link in this format:
+      https://amoy.polygonscan.com/tx/<0x><Polygon tx hash>
+     Output: $email_sent
 
     Execute all steps sequentially. Ensure payment link is generated and email is sent.
+    
     """
 
             # Send planning step update
@@ -453,14 +519,26 @@ async def get_orders():
 
 @app.get("/health")
 async def health_check():
-    """Enhanced health check with websocket statistics"""
+    """Enhanced health check with websocket and blockchain statistics"""
     stats = websocket_manager.get_connection_stats()
+
+    # Get blockchain integration status
+    blockchain_health = processor.blockchain_status
+
+    # Determine overall system health
+    overall_status = "healthy"
+    if blockchain_health.get("overall_status") == "local_only":
+        overall_status = "degraded"  # System works but without full blockchain features
+    elif blockchain_health.get("overall_status") == "error":
+        overall_status = "degraded"
+
     return {
-        "status": "healthy",
+        "status": overall_status,
         "timestamp": datetime.utcnow().isoformat(),
         "websocket_stats": stats,
         "clarification_stats": clarification_handler.get_stats(),
         "processing_stats": orchestrator.get_session_stats(),
+        "blockchain_integration": blockchain_health,
     }
 
 
@@ -475,11 +553,174 @@ async def websocket_stats():
     }
 
 
+@app.get("/blockchain/status")
+async def blockchain_status():
+    """Get detailed blockchain integration status"""
+    try:
+        # Get current blockchain tool status
+        blockchain_tool = None
+        for tool in processor.base_tools:
+            if isinstance(tool, BlockchainTool):
+                blockchain_tool = tool
+                break
+
+        if blockchain_tool:
+            polygon_status = blockchain_tool.get_polygon_service_status()
+
+            # Get security audit summary if available
+            security_audit = {}
+            try:
+                security_audit = blockchain_tool.get_security_audit_summary(24)
+            except Exception as e:
+                security_audit = {"error": f"Security audit unavailable: {e}"}
+
+            # Test network recovery if service is available
+            network_recovery = {}
+            try:
+                network_recovery = blockchain_tool.test_network_recovery()
+            except Exception as e:
+                network_recovery = {"error": f"Network recovery test failed: {e}"}
+
+            return {
+                "integration_status": processor.blockchain_status,
+                "polygon_service": polygon_status,
+                "security_audit": security_audit,
+                "network_recovery": network_recovery,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        else:
+            return {
+                "integration_status": processor.blockchain_status,
+                "error": "Blockchain tool not found in processor",
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting blockchain status: {e}")
+        return {
+            "integration_status": processor.blockchain_status,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+
 @app.post("/ws/cleanup")
 async def cleanup_old_data():
     """Cleanup old clarifications and sessions"""
     await clarification_handler.cleanup_old_clarifications()
     return {"message": "Cleanup completed"}
+
+
+@app.get("/blockchain/config/validate")
+async def validate_blockchain_config():
+    """Validate blockchain configuration and connectivity"""
+    try:
+        # Validate Polygon configuration
+        config_validation = {
+            "polygon_config": {"status": "unknown", "errors": []},
+            "network_connectivity": {"status": "unknown", "errors": []},
+            "wallet_status": {"status": "unknown", "errors": []},
+            "contract_status": {"status": "unknown", "errors": []},
+        }
+
+        # Test configuration loading
+        try:
+            polygon_config = PolygonConfig.from_env()
+            config_validation["polygon_config"]["status"] = "valid"
+            config_validation["polygon_config"]["network"] = polygon_config.network_name
+            config_validation["polygon_config"]["chain_id"] = polygon_config.chain_id
+        except Exception as e:
+            config_validation["polygon_config"]["status"] = "invalid"
+            config_validation["polygon_config"]["errors"].append(str(e))
+
+        # Test network connectivity and other components
+        blockchain_health = health_check_polygon_integration()
+
+        if blockchain_health.get("status") == "healthy":
+            config_validation["network_connectivity"]["status"] = "connected"
+            config_validation["wallet_status"]["status"] = "accessible"
+            config_validation["contract_status"]["status"] = "deployed"
+        elif blockchain_health.get("status") == "degraded":
+            config_validation["network_connectivity"]["status"] = "degraded"
+            config_validation["wallet_status"]["status"] = "accessible"
+            config_validation["contract_status"]["status"] = "unknown"
+        else:
+            config_validation["network_connectivity"]["status"] = "failed"
+            config_validation["network_connectivity"]["errors"].append(
+                blockchain_health.get("error", "Unknown network error")
+            )
+
+        # Determine overall validation status
+        overall_status = "valid"
+        for component, status in config_validation.items():
+            if status["status"] in ["invalid", "failed"]:
+                overall_status = "invalid"
+                break
+            elif status["status"] in ["degraded", "unknown"]:
+                overall_status = "degraded"
+
+        return {
+            "overall_status": overall_status,
+            "validation_details": config_validation,
+            "blockchain_health": blockchain_health,
+            "timestamp": datetime.utcnow().isoformat(),
+            "recommendations": _get_config_recommendations(config_validation),
+        }
+
+    except Exception as e:
+        logger.error(f"Error validating blockchain configuration: {e}")
+        return {
+            "overall_status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+
+def _get_config_recommendations(validation_details: dict) -> list:
+    """Generate configuration recommendations based on validation results"""
+    recommendations = []
+
+    if validation_details["polygon_config"]["status"] == "invalid":
+        recommendations.append(
+            {
+                "type": "configuration",
+                "priority": "high",
+                "message": "Fix Polygon configuration errors in .env file",
+                "action": "Review blockchain/DEPLOYMENT_GUIDE.md for setup instructions",
+            }
+        )
+
+    if validation_details["network_connectivity"]["status"] == "failed":
+        recommendations.append(
+            {
+                "type": "network",
+                "priority": "high",
+                "message": "Network connectivity issues detected",
+                "action": "Check RPC URL and network settings, review blockchain/TROUBLESHOOTING.md",
+            }
+        )
+
+    if validation_details["wallet_status"]["status"] == "unknown":
+        recommendations.append(
+            {
+                "type": "wallet",
+                "priority": "medium",
+                "message": "Wallet status could not be verified",
+                "action": "Ensure private key is valid and wallet has sufficient test MATIC",
+            }
+        )
+
+    if validation_details["contract_status"]["status"] == "unknown":
+        recommendations.append(
+            {
+                "type": "contract",
+                "priority": "medium",
+                "message": "Smart contract status unclear",
+                "action": "Verify contract deployment with: python blockchain/validate_contract_integration.py",
+            }
+        )
+
+    return recommendations
 
 
 @app.websocket("/ws/{client_id}")

@@ -6,12 +6,16 @@ authors = [
     {name = "girishdigge",email = "girishdigge@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4"
 dependencies = [
     "portia-sdk-python [openai,google](>=0.6.2,<0.7.0)",
     "dotenv (>=0.9.9,<0.10.0)",
     "stripe (>=12.4.0,<13.0.0)",
-    "fastapi (>=0.116.1,<0.117.0)"
+    "fastapi (>=0.116.1,<0.117.0)",
+    "web3 (>=7.13.0,<8.0.0)",
+    "eth-account (>=0.13.7,<0.14.0)",
+    "eth-tester (>=0.13.0b1,<0.14.0)",
+    "py-solc-x (>=2.0.4,<3.0.0)"
 ]
 
 
