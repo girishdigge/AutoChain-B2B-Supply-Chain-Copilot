@@ -1,4 +1,6 @@
-[project]
+[tool.poetry]
+package-mode = false
+
 name = "autochain-b2b-supply-chain-copilot"
 version = "0.1.0"
 description = ""
