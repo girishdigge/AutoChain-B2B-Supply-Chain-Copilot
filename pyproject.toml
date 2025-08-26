@@ -6,6 +6,7 @@ authors = [
     {name = "girishdigge", email = "girishdigge@gmail.com"}
 ]
 readme = "README.md"
+package-mode = false
 requires-python = ">=3.12,<4"
 dependencies = [
     "portia-sdk-python[openai,google]>=0.6.2,<0.7.0",
