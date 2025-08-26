@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Email Completion Card Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .test-container {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+      }
+      button {
+        background: #3b82f6;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin: 5px;
+      }
+      button:hover {
+        background: #2563eb;
+      }
+      .instructions {
+        background: #fef3c7;
+        border: 1px solid #f59e0b;
+        padding: 15px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+      }
+      .code {
+        background: #f3f4f6;
+        padding: 10px;
+        border-radius: 4px;
+        font-family: monospace;
+        margin: 10px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🎯 Email Completion Card Test</h1>
+
+    <div class="instructions">
+      <h3>📋 Test Instructions</h3>
+      <p>
+        This page helps you test the email completion card functionality. Follow
+        these steps:
+      </p>
+      <ol>
+        <li>
+          Make sure your frontend is running on
+          <code>http://localhost:5173</code>
+        </li>
+        <li>Navigate to the Workflow page in your app</li>
+        <li>Open browser console (F12)</li>
+        <li>Use the buttons below or run the console commands manually</li>
+      </ol>
+    </div>
+
+    <div class="test-container">
+      <h3>🧪 Manual Test Triggers</h3>
+      <p>Click these buttons to test different completion scenarios:</p>
+
+      <button onclick="triggerBasicCompletion()">
+        📧 Basic Email Completion
+      </button>
+
+      <button onclick="triggerFullCompletion()">
+        🎉 Full Order Completion
+      </button>
+
+      <button onclick="triggerMinimalCompletion()">
+        📝 Minimal Data Completion
+      </button>
+
+      <button onclick="openWorkflowPage()">🔗 Open Workflow Page</button>
+    </div>
+
+    <div class="test-container">
+      <h3>💻 Console Commands</h3>
+      <p>You can also run these commands directly in the browser console:</p>
+
+      <div class="code">// Basic trigger window.triggerEmailCompletion();</div>
+
+      <div class="code">
+        // Custom data trigger window.triggerEmailCompletion({ type:
+        'email_completed', orderId: 'CUSTOM-ORDER-123', buyerEmail:
+        'customer@example.com', model: 'Lamborghini Aventador', quantity: 1,
+        deliveryLocation: 'London', totalAmount: '$500,000.00', paymentLink:
+        'https://checkout.stripe.com/pay/custom123', blockchainTxHash:
+        '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890' });
+      </div>
+
+      <div class="code">
+        // Check if handler is available console.log('Email completion handler
+        available:', !!window.handleEmailCompletionEvent);
+      </div>
+    </div>
+
+    <div class="test-container">
+      <h3>🔍 Expected Behavior</h3>
+      <ul>
+        <li>✅ Completion card should appear with animation</li>
+        <li>✅ Order details should be displayed correctly</li>
+        <li>✅ Payment link button should be enabled (if valid Stripe URL)</li>
+        <li>✅ Blockchain link button should be enabled (if valid hash)</li>
+        <li>✅ Email confirmation badge should show "Email Sent"</li>
+        <li>✅ Confetti animation should play</li>
+        <li>✅ Card should be closable with X button</li>
+      </ul>
+    </div>
+
+    <script>
+      function triggerBasicCompletion() {
+        const testData = {
+          type: 'email_completed',
+          orderId: 'TEST-BASIC-' + Date.now(),
+          buyerEmail: 'test@example.com',
+          model: 'Test Product',
+          quantity: 1,
+          deliveryLocation: 'Test Location',
+          totalAmount: '$99.99',
+          paymentLink: 'https://checkout.stripe.com/pay/test123',
+          blockchainTxHash:
+            '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+        };
+
+        console.log('🧪 Triggering basic email completion:', testData);
+
+        if (window.parent && window.parent.triggerEmailCompletion) {
+          window.parent.triggerEmailCompletion(testData);
+        } else {
+          alert(
+            'Please run this from the workflow page console or open the workflow page first.'
+          );
+        }
+      }
+
+      function triggerFullCompletion() {
+        const testData = {
+          type: 'email_completed',
+          orderId: 'FULL-ORDER-' + Date.now(),
+          buyerEmail: 'premium@customer.com',
+          model: 'Lamborghini Aventador',
+          quantity: 1,
+          deliveryLocation: 'Monaco',
+          totalAmount: '$500,000.00',
+          paymentLink: 'https://checkout.stripe.com/pay/premium123',
+          blockchainTxHash:
+            '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+          emailConfirmationId: 'email_' + Date.now(),
+        };
+
+        console.log('🧪 Triggering full email completion:', testData);
+
+        if (window.parent && window.parent.triggerEmailCompletion) {
+          window.parent.triggerEmailCompletion(testData);
+        } else {
+          alert(
+            'Please run this from the workflow page console or open the workflow page first.'
+          );
+        }
+      }
+
+      function triggerMinimalCompletion() {
+        const testData = {
+          type: 'email_completed',
+          orderId: 'MIN-ORDER-' + Date.now(),
+          buyerEmail: 'minimal@test.com',
+          model: 'Basic Product',
+          quantity: 1,
+          deliveryLocation: 'Unknown',
+          totalAmount: '$0.00',
+          // No payment link or blockchain hash to test fallback behavior
+        };
+
+        console.log('🧪 Triggering minimal email completion:', testData);
+
+        if (window.parent && window.parent.triggerEmailCompletion) {
+          window.parent.triggerEmailCompletion(testData);
+        } else {
+          alert(
+            'Please run this from the workflow page console or open the workflow page first.'
+          );
+        }
+      }
+
+      function openWorkflowPage() {
+        window.open('http://localhost:5173/workflow', '_blank');
+      }
+
+      // Add instructions to console
+      console.log(`
+🎯 EMAIL COMPLETION CARD TEST HELPER
+
+Available functions:
+- triggerBasicCompletion()
+- triggerFullCompletion() 
+- triggerMinimalCompletion()
+- openWorkflowPage()
+
+Or use: window.triggerEmailCompletion(customData)
+        `);
+    </script>
+  </body>
+</html>

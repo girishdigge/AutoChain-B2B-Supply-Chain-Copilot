@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>WebSocket Connection Test</title>
+  </head>
+  <body>
+    <h1>WebSocket Connection Test</h1>
+    <div id="status">Disconnected</div>
+    <div id="log"></div>
+    <button onclick="connect()">Connect</button>
+    <button onclick="disconnect()">Disconnect</button>
+    <button onclick="sendOrderProcessing()">Start Order Processing</button>
+    <button onclick="sendGetStatus()">Get Status</button>
+    <button onclick="sendCancelProcessing()">Cancel Processing</button>
+
+    <script>
+      let ws = null;
+      const clientId = 'test-client-123';
+      const wsUrl = `ws://localhost:8000/ws/${clientId}`;
+
+      function log(message) {
+        const logDiv = document.getElementById('log');
+        const timestamp = new Date().toLocaleTimeString();
+        logDiv.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+
+      function updateStatus(status) {
+        document.getElementById('status').textContent = status;
+      }
+
+      function connect() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          log('Already connected');
+          return;
+        }
+
+        log(`Connecting to ${wsUrl}...`);
+        updateStatus('Connecting...');
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = function () {
+          log('✅ Connected successfully');
+          updateStatus('Connected');
+        };
+
+        ws.onmessage = function (event) {
+          log(`📨 Received: ${event.data}`);
+        };
+
+        ws.onclose = function (event) {
+          log(
+            `❌ Connection closed: Code ${event.code}, Reason: ${event.reason}`
+          );
+          updateStatus('Disconnected');
+        };
+
+        ws.onerror = function (error) {
+          log(`🚨 WebSocket error: ${error}`);
+          updateStatus('Error');
+        };
+      }
+
+      function disconnect() {
+        if (ws) {
+          ws.close(1000, 'Manual disconnect');
+          ws = null;
+        }
+      }
+
+      function sendOrderProcessing() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          const message = {
+            type: 'start_order_processing',
+            data: {
+              order_text:
+                'I want to buy 2 Harrier. My email is test@example.com deliver it to pune',
+            },
+          };
+          ws.send(JSON.stringify(message));
+          log(`📤 Sent order processing request`);
+        } else {
+          log('❌ Not connected');
+        }
+      }
+
+      function sendGetStatus() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          const message = {
+            type: 'get_processing_status',
+            data: {},
+          };
+          ws.send(JSON.stringify(message));
+          log(`📤 Sent status request`);
+        } else {
+          log('❌ Not connected');
+        }
+      }
+
+      function sendCancelProcessing() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          const message = {
+            type: 'cancel_processing',
+            data: {
+              run_id: 'test-run-123',
+            },
+          };
+          ws.send(JSON.stringify(message));
+          log(`📤 Sent cancel request`);
+        } else {
+          log('❌ Not connected');
+        }
+      }
+
+      // Auto-connect on page load
+      window.onload = function () {
+        connect();
+      };
+    </script>
+  </body>
+</html>

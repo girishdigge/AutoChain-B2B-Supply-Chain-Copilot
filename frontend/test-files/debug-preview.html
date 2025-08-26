@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Preview Debug Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        background: #f0f0f0;
+      }
+      .debug-info {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        margin: 10px 0;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      .error {
+        background: #fee;
+        border-left: 4px solid #f00;
+      }
+      .success {
+        background: #efe;
+        border-left: 4px solid #0f0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🔍 Preview Debug Test</h1>
+
+    <div class="debug-info">
+      <h2>Environment Check</h2>
+      <p><strong>Current URL:</strong> <span id="current-url"></span></p>
+      <p><strong>Base URL:</strong> <span id="base-url"></span></p>
+      <p><strong>Protocol:</strong> <span id="protocol"></span></p>
+    </div>
+
+    <div class="debug-info">
+      <h2>Asset Loading Test</h2>
+      <div id="asset-test"></div>
+    </div>
+
+    <div class="debug-info">
+      <h2>Console Errors</h2>
+      <div id="console-errors"></div>
+    </div>
+
+    <script>
+      // Basic environment info
+      document.getElementById('current-url').textContent = window.location.href;
+      document.getElementById('base-url').textContent = document.baseURI;
+      document.getElementById('protocol').textContent =
+        window.location.protocol;
+
+      // Test asset loading
+      const assetTest = document.getElementById('asset-test');
+
+      // Test CSS loading
+      const cssLink = document.createElement('link');
+      cssLink.rel = 'stylesheet';
+      cssLink.href = '/css/index-CPkT043g.css';
+      cssLink.onload = () => {
+        assetTest.innerHTML +=
+          '<div class="success">✅ CSS file loaded successfully</div>';
+      };
+      cssLink.onerror = () => {
+        assetTest.innerHTML +=
+          '<div class="error">❌ CSS file failed to load</div>';
+      };
+      document.head.appendChild(cssLink);
+
+      // Test JS loading
+      const jsScript = document.createElement('script');
+      jsScript.src = '/js/index-DVH_BYlc.js';
+      jsScript.onload = () => {
+        assetTest.innerHTML +=
+          '<div class="success">✅ Main JS file loaded successfully</div>';
+      };
+      jsScript.onerror = () => {
+        assetTest.innerHTML +=
+          '<div class="error">❌ Main JS file failed to load</div>';
+      };
+      document.head.appendChild(jsScript);
+
+      // Capture console errors
+      const originalError = console.error;
+      const errors = [];
+      console.error = function (...args) {
+        errors.push(args.join(' '));
+        originalError.apply(console, args);
+        updateErrorDisplay();
+      };
+
+      function updateErrorDisplay() {
+        const errorDiv = document.getElementById('console-errors');
+        if (errors.length === 0) {
+          errorDiv.innerHTML =
+            '<div class="success">✅ No console errors detected</div>';
+        } else {
+          errorDiv.innerHTML = errors
+            .map((error) => `<div class="error">❌ ${error}</div>`)
+            .join('');
+        }
+      }
+
+      // Initial error display
+      setTimeout(updateErrorDisplay, 1000);
+
+      // Test fetch to root
+      fetch('/')
+        .then((response) => {
+          if (response.ok) {
+            assetTest.innerHTML +=
+              '<div class="success">✅ Root path accessible</div>';
+          } else {
+            assetTest.innerHTML +=
+              '<div class="error">❌ Root path returned: ' +
+              response.status +
+              '</div>';
+          }
+        })
+        .catch((error) => {
+          assetTest.innerHTML +=
+            '<div class="error">❌ Root path fetch failed: ' +
+            error.message +
+            '</div>';
+        });
+    </script>
+  </body>
+</html>

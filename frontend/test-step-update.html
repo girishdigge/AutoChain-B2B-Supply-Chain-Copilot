@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Step Update Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+      }
+      .status {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 5px;
+      }
+      .connected {
+        background-color: #d4edda;
+        color: #155724;
+      }
+      .disconnected {
+        background-color: #f8d7da;
+        color: #721c24;
+      }
+      .message {
+        background-color: #f8f9fa;
+        padding: 10px;
+        margin: 5px 0;
+        border-left: 3px solid #007bff;
+      }
+      button {
+        padding: 10px 15px;
+        margin: 5px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #0056b3;
+      }
+      button:disabled {
+        background-color: #6c757d;
+        cursor: not-allowed;
+      }
+      .log {
+        background-color: #f8f9fa;
+        padding: 10px;
+        height: 300px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        font-family: monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Step Update Test</h1>
+
+      <div id="status" class="status disconnected">Disconnected</div>
+
+      <div>
+        <button id="connectBtn" onclick="connect()">Connect</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>
+          Disconnect
+        </button>
+        <button id="sendStepBtn" onclick="sendStepUpdate()" disabled>
+          Send Step Update
+        </button>
+        <button id="sendMultipleBtn" onclick="sendMultipleSteps()" disabled>
+          Send Multiple Steps
+        </button>
+      </div>
+
+      <div>
+        <h3>WebSocket Log</h3>
+        <div id="log" class="log"></div>
+      </div>
+    </div>
+
+    <script>
+      let ws = null;
+      let stepCounter = 1;
+
+      function log(message) {
+        const logDiv = document.getElementById('log');
+        const timestamp = new Date().toLocaleTimeString();
+        logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+
+      function updateStatus(connected) {
+        const statusDiv = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const sendStepBtn = document.getElementById('sendStepBtn');
+        const sendMultipleBtn = document.getElementById('sendMultipleBtn');
+
+        if (connected) {
+          statusDiv.textContent = 'Connected';
+          statusDiv.className = 'status connected';
+          connectBtn.disabled = true;
+          disconnectBtn.disabled = false;
+          sendStepBtn.disabled = false;
+          sendMultipleBtn.disabled = false;
+        } else {
+          statusDiv.textContent = 'Disconnected';
+          statusDiv.className = 'status disconnected';
+          connectBtn.disabled = false;
+          disconnectBtn.disabled = true;
+          sendStepBtn.disabled = true;
+          sendMultipleBtn.disabled = true;
+        }
+      }
+
+      function connect() {
+        const clientId = 'test-client-step-update';
+        const wsUrl = `ws://localhost:8000/ws/${clientId}`;
+
+        log(`Connecting to ${wsUrl}...`);
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = function (event) {
+          log('✅ Connected to WebSocket');
+          updateStatus(true);
+        };
+
+        ws.onmessage = function (event) {
+          try {
+            const message = JSON.parse(event.data);
+            log(
+              `📨 Received: ${message.type} - ${JSON.stringify(message.data)}`
+            );
+          } catch (error) {
+            log(`📨 Received (raw): ${event.data}`);
+          }
+        };
+
+        ws.onclose = function (event) {
+          log(`❌ Connection closed: ${event.code} - ${event.reason}`);
+          updateStatus(false);
+          ws = null;
+        };
+
+        ws.onerror = function (error) {
+          log(`🚨 WebSocket error: ${error}`);
+          updateStatus(false);
+        };
+      }
+
+      function disconnect() {
+        if (ws) {
+          ws.close();
+        }
+      }
+
+      function sendStepUpdate() {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          log('❌ Not connected');
+          return;
+        }
+
+        const stepUpdate = {
+          type: 'step_update',
+          data: {
+            step_id: `step-${stepCounter}`,
+            step_name: `Test Step ${stepCounter}`,
+            status: 'started',
+            progress_percentage: Math.min(stepCounter * 10, 100),
+            tool_name: `TestTool${stepCounter}`,
+            execution_time_ms: 1000 + Math.random() * 2000,
+          },
+          timestamp: new Date().toISOString(),
+          client_id: 'test-client-step-update',
+        };
+
+        ws.send(JSON.stringify(stepUpdate));
+        log(
+          `📤 Sent step update: ${stepUpdate.data.step_name} - ${stepUpdate.data.status}`
+        );
+
+        // Simulate step completion after 2 seconds
+        setTimeout(() => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            const completedUpdate = {
+              ...stepUpdate,
+              data: {
+                ...stepUpdate.data,
+                status: 'completed',
+                output: {
+                  result: `Step ${stepCounter} completed successfully`,
+                },
+              },
+            };
+
+            ws.send(JSON.stringify(completedUpdate));
+            log(
+              `📤 Sent step completion: ${completedUpdate.data.step_name} - completed`
+            );
+          }
+        }, 2000);
+
+        stepCounter++;
+      }
+
+      function sendMultipleSteps() {
+        const steps = [
+          { name: 'Extract Order', tool: 'OrderExtractionTool' },
+          { name: 'Validate Order', tool: 'ValidatorTool' },
+          { name: 'Check Inventory', tool: 'InventoryTool' },
+          { name: 'Calculate Pricing', tool: 'PricingTool' },
+          { name: 'Find Suppliers', tool: 'SupplierTool' },
+          { name: 'Calculate Logistics', tool: 'LogisticsTool' },
+          { name: 'Generate Payment', tool: 'PaymentTool' },
+          { name: 'Finalize Order', tool: 'OrderTool' },
+        ];
+
+        steps.forEach((step, index) => {
+          setTimeout(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              const stepUpdate = {
+                type: 'step_update',
+                data: {
+                  step_id: `workflow-step-${index + 1}`,
+                  step_name: step.name,
+                  status: 'started',
+                  progress_percentage: ((index + 1) / steps.length) * 100,
+                  tool_name: step.tool,
+                  execution_time_ms: 1500 + Math.random() * 1000,
+                },
+                timestamp: new Date().toISOString(),
+                client_id: 'test-client-step-update',
+              };
+
+              ws.send(JSON.stringify(stepUpdate));
+              log(`📤 Sent: ${step.name} - started`);
+
+              // Complete the step after a delay
+              setTimeout(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  const completedUpdate = {
+                    ...stepUpdate,
+                    data: {
+                      ...stepUpdate.data,
+                      status: 'completed',
+                      output: { result: `${step.name} completed` },
+                    },
+                  };
+
+                  ws.send(JSON.stringify(completedUpdate));
+                  log(`📤 Sent: ${step.name} - completed`);
+                }
+              }, 1000 + Math.random() * 2000);
+            }
+          }, index * 500); // Stagger the steps
+        });
+      }
+
+      // Auto-connect on page load
+      window.onload = function () {
+        log('Page loaded. Click Connect to start testing.');
+      };
+    </script>
+  </body>
+</html>

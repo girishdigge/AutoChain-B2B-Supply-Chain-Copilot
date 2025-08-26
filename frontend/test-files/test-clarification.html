@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Clarification Dialog Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        background: #f5f5f5;
+      }
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      .status {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+        font-weight: bold;
+      }
+      .connected {
+        background: #d4edda;
+        color: #155724;
+      }
+      .disconnected {
+        background: #f8d7da;
+        color: #721c24;
+      }
+      .log {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 10px;
+        margin: 10px 0;
+        max-height: 300px;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 12px;
+      }
+      button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin: 5px;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      button:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>WebSocket + Clarification Test</h1>
+
+      <div id="status" class="status disconnected">Disconnected</div>
+
+      <div>
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+        <button onclick="sendOrderProcessing()">Start Order Processing</button>
+        <button onclick="testClarification()">Test Clarification</button>
+      </div>
+
+      <div class="log" id="log"></div>
+    </div>
+
+    <script>
+      let ws = null;
+      const clientId = 'test-client-123';
+      const wsUrl = `ws://localhost:8000/ws/${clientId}`;
+
+      function log(message) {
+        const logDiv = document.getElementById('log');
+        const timestamp = new Date().toLocaleTimeString();
+        logDiv.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+
+      function updateStatus(status, connected) {
+        const statusDiv = document.getElementById('status');
+        statusDiv.textContent = status;
+        statusDiv.className = `status ${
+          connected ? 'connected' : 'disconnected'
+        }`;
+      }
+
+      function connect() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          log('Already connected');
+          return;
+        }
+
+        log(`Connecting to ${wsUrl}...`);
+        updateStatus('Connecting...', false);
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = function () {
+          log('✅ Connected successfully');
+          updateStatus('Connected', true);
+        };
+
+        ws.onmessage = function (event) {
+          const data = JSON.parse(event.data);
+          log(`📨 Received: ${data.type}`);
+
+          // Handle clarification requests
+          if (data.type === 'clarification_request') {
+            log(`🤔 CLARIFICATION: ${data.data.question}`);
+            log(`⏰ Timeout: ${data.data.timeout_seconds}s`);
+            if (data.data.options) {
+              log(`📋 Options: ${data.data.options.join(', ')}`);
+            }
+
+            // Auto-respond after 5 seconds for testing
+            setTimeout(() => {
+              const response = data.data.options
+                ? data.data.options[0]
+                : 'I would like to proceed with the Tata Harrier instead';
+
+              sendClarificationResponse(data.data.clarification_id, response);
+            }, 5000);
+          }
+
+          // Handle step updates
+          if (data.type === 'step_update') {
+            log(`🔄 Step: ${data.data.step_name} - ${data.data.status}`);
+            if (data.data.status === 'waiting') {
+              log(`⏳ Step waiting for user input`);
+            }
+          }
+
+          // Handle processing started
+          if (data.type === 'processing_started') {
+            log(`🚀 Processing started: ${data.data.message}`);
+          }
+        };
+
+        ws.onclose = function (event) {
+          log(`❌ Connection closed: Code ${event.code}`);
+          updateStatus('Disconnected', false);
+        };
+
+        ws.onerror = function (error) {
+          log(`🚨 WebSocket error: ${error}`);
+          updateStatus('Error', false);
+        };
+      }
+
+      function disconnect() {
+        if (ws) {
+          ws.close(1000, 'Manual disconnect');
+          ws = null;
+        }
+      }
+
+      function sendOrderProcessing() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          const message = {
+            type: 'start_order_processing',
+            data: {
+              order_text:
+                'I want to buy 2 Harrier. My email is test@example.com deliver it to pune',
+            },
+          };
+          ws.send(JSON.stringify(message));
+          log(`📤 Sent order processing request`);
+        } else {
+          log('❌ Not connected');
+        }
+      }
+
+      function sendClarificationResponse(clarificationId, response) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          const message = {
+            type: 'clarification_response',
+            data: {
+              clarification_id: clarificationId,
+              response: response,
+              timestamp: new Date().toISOString(),
+            },
+          };
+          ws.send(JSON.stringify(message));
+          log(`📤 Sent clarification response: ${response}`);
+        } else {
+          log('❌ Not connected');
+        }
+      }
+
+      function testClarification() {
+        // This is just for testing - normally clarifications come from the backend
+        log('🧪 This would normally trigger a clarification from the backend');
+        log('💡 Try "Start Order Processing" to see real clarifications');
+      }
+
+      // Auto-connect on page load
+      window.onload = function () {
+        connect();
+      };
+    </script>
+  </body>
+</html>

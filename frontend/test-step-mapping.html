@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Step Mapping Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+      }
+      .test-result {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 5px;
+      }
+      .success {
+        background-color: #d4edda;
+        color: #155724;
+      }
+      .error {
+        background-color: #f8d7da;
+        color: #721c24;
+      }
+      .step {
+        background-color: #f8f9fa;
+        padding: 10px;
+        margin: 5px 0;
+        border-left: 3px solid #007bff;
+      }
+      button {
+        padding: 10px 15px;
+        margin: 5px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #0056b3;
+      }
+      .log {
+        background-color: #f8f9fa;
+        padding: 10px;
+        height: 400px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        font-family: monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Step Mapping Test</h1>
+
+      <div>
+        <button onclick="testStepMapping()">Test Step Mapping</button>
+        <button onclick="sendRealStepSequence()">
+          Send Real Step Sequence
+        </button>
+        <button onclick="clearLog()">Clear Log</button>
+      </div>
+
+      <div>
+        <h3>Test Results</h3>
+        <div id="results"></div>
+      </div>
+
+      <div>
+        <h3>Log</h3>
+        <div id="log" class="log"></div>
+      </div>
+    </div>
+
+    <script>
+      function log(message) {
+        const logDiv = document.getElementById('log');
+        const timestamp = new Date().toLocaleTimeString();
+        logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+
+      function clearLog() {
+        document.getElementById('log').innerHTML = '';
+        document.getElementById('results').innerHTML = '';
+      }
+
+      function addResult(message, isSuccess = true) {
+        const resultsDiv = document.getElementById('results');
+        const div = document.createElement('div');
+        div.className = `test-result ${isSuccess ? 'success' : 'error'}`;
+        div.textContent = message;
+        resultsDiv.appendChild(div);
+      }
+
+      function testStepMapping() {
+        log('Testing step mapping function...');
+
+        // Test cases based on actual backend tool names
+        const testCases = [
+          { toolName: 'OrderExtractionTool', expected: 'extraction' },
+          { toolName: 'ValidatorTool', expected: 'validation' },
+          { toolName: 'Merge Fields Tool', expected: 'merge' },
+          { toolName: 'Inventory Check Tool', expected: 'inventory' },
+          { toolName: 'Pricing Calculator', expected: 'pricing' },
+          { toolName: 'Supplier Quote Tool', expected: 'supplier' },
+          { toolName: 'LogisticsShippingTool', expected: 'logistics' },
+          { toolName: 'FinanceAndPaymentTool', expected: 'finance' },
+          { toolName: 'ClarificationTool', expected: 'confirmation' },
+          { toolName: 'StripePaymentTool', expected: 'payment' },
+          { toolName: 'Order Tool', expected: 'order' },
+          { toolName: 'Blockchain Anchor Tool', expected: 'blockchain' },
+          { toolName: 'Portia Google Send Email Tool', expected: 'email' },
+        ];
+
+        // Simple mapping function for testing
+        function mapToolNameToStepId(toolName) {
+          const toolMappings = {
+            OrderExtractionTool: 'extraction',
+            ValidatorTool: 'validation',
+            'Inventory Check Tool': 'inventory',
+            'Pricing Calculator': 'pricing',
+            'Supplier Quote Tool': 'supplier',
+            LogisticsShippingTool: 'logistics',
+            FinanceAndPaymentTool: 'finance',
+            ClarificationTool: 'confirmation',
+            StripePaymentTool: 'payment',
+            'Order Tool': 'order',
+            'Blockchain Anchor Tool': 'blockchain',
+            'Portia Google Send Email Tool': 'email',
+            'Merge Fields Tool': 'merge',
+          };
+
+          if (toolMappings[toolName]) {
+            return toolMappings[toolName];
+          }
+
+          // Fallback
+          return toolName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        }
+
+        let passed = 0;
+        let failed = 0;
+
+        testCases.forEach((testCase) => {
+          const result = mapToolNameToStepId(testCase.toolName);
+          const success = result === testCase.expected;
+
+          if (success) {
+            passed++;
+            log(
+              `✅ ${testCase.toolName} -> ${result} (expected: ${testCase.expected})`
+            );
+          } else {
+            failed++;
+            log(
+              `❌ ${testCase.toolName} -> ${result} (expected: ${testCase.expected})`
+            );
+          }
+        });
+
+        addResult(
+          `Mapping test completed: ${passed} passed, ${failed} failed`,
+          failed === 0
+        );
+      }
+
+      function sendRealStepSequence() {
+        log('Sending real step sequence from backend logs...');
+
+        const steps = [
+          {
+            tool: 'OrderExtractionTool',
+            name: 'Order Extraction',
+            status: 'started',
+          },
+          {
+            tool: 'OrderExtractionTool',
+            name: 'Order Extraction',
+            status: 'completed',
+          },
+          { tool: 'ValidatorTool', name: 'Validator', status: 'started' },
+          { tool: 'ValidatorTool', name: 'Validator', status: 'completed' },
+          {
+            tool: 'Merge Fields Tool',
+            name: 'Merge Fields',
+            status: 'started',
+          },
+          {
+            tool: 'Merge Fields Tool',
+            name: 'Merge Fields',
+            status: 'completed',
+          },
+          {
+            tool: 'Inventory Check Tool',
+            name: 'Inventory Check',
+            status: 'started',
+          },
+          {
+            tool: 'Inventory Check Tool',
+            name: 'Inventory Check',
+            status: 'completed',
+          },
+          {
+            tool: 'Pricing Calculator',
+            name: 'Pricing Calculator',
+            status: 'started',
+          },
+          {
+            tool: 'Pricing Calculator',
+            name: 'Pricing Calculator',
+            status: 'completed',
+          },
+          {
+            tool: 'Supplier Quote Tool',
+            name: 'Supplier Quote',
+            status: 'started',
+          },
+          {
+            tool: 'Supplier Quote Tool',
+            name: 'Supplier Quote',
+            status: 'completed',
+          },
+          {
+            tool: 'LogisticsShippingTool',
+            name: 'Logistics Shipping',
+            status: 'started',
+          },
+          {
+            tool: 'LogisticsShippingTool',
+            name: 'Logistics Shipping',
+            status: 'completed',
+          },
+          {
+            tool: 'FinanceAndPaymentTool',
+            name: 'Finance And Payment',
+            status: 'started',
+          },
+          {
+            tool: 'FinanceAndPaymentTool',
+            name: 'Finance And Payment',
+            status: 'completed',
+          },
+          {
+            tool: 'ClarificationTool',
+            name: 'Clarification',
+            status: 'started',
+          },
+          {
+            tool: 'ClarificationTool',
+            name: 'Clarification',
+            status: 'completed',
+          },
+          {
+            tool: 'StripePaymentTool',
+            name: 'Stripe Payment',
+            status: 'started',
+          },
+          {
+            tool: 'StripePaymentTool',
+            name: 'Stripe Payment',
+            status: 'completed',
+          },
+          { tool: 'Order Tool', name: 'Order', status: 'started' },
+          { tool: 'Order Tool', name: 'Order', status: 'completed' },
+          {
+            tool: 'Blockchain Anchor Tool',
+            name: 'Blockchain Anchor',
+            status: 'started',
+          },
+          {
+            tool: 'Blockchain Anchor Tool',
+            name: 'Blockchain Anchor',
+            status: 'completed',
+          },
+          {
+            tool: 'Portia Google Send Email Tool',
+            name: 'Email',
+            status: 'started',
+          },
+          {
+            tool: 'Portia Google Send Email Tool',
+            name: 'Email',
+            status: 'completed',
+          },
+        ];
+
+        // Simulate sending these steps with delays
+        steps.forEach((step, index) => {
+          setTimeout(() => {
+            const stepUpdate = {
+              type: 'step_update',
+              data: {
+                step_id: `step-${index}`,
+                step_name: step.name,
+                status: step.status,
+                tool_name: step.tool,
+                progress_percentage: ((index + 1) / steps.length) * 100,
+                execution_time_ms: 1000 + Math.random() * 2000,
+              },
+              timestamp: new Date().toISOString(),
+              client_id: 'test-client',
+            };
+
+            log(`📤 Step: ${step.tool} - ${step.status}`);
+
+            // In a real scenario, this would be sent via WebSocket
+            // For testing, we just log what would be sent
+          }, index * 200); // Stagger by 200ms
+        });
+
+        addResult(`Sent ${steps.length} step updates`, true);
+      }
+
+      window.onload = function () {
+        log('Step mapping test page loaded');
+        log('Click "Test Step Mapping" to verify the mapping function');
+        log(
+          'Click "Send Real Step Sequence" to simulate the actual backend sequence'
+        );
+      };
+    </script>
+  </body>
+</html>

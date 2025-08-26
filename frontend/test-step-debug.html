@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Step Update Debug Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      .container {
+        max-width: 1000px;
+        margin: 0 auto;
+      }
+      .status {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 5px;
+      }
+      .connected {
+        background-color: #d4edda;
+        color: #155724;
+      }
+      .disconnected {
+        background-color: #f8d7da;
+        color: #721c24;
+      }
+      .step {
+        background-color: #f8f9fa;
+        padding: 10px;
+        margin: 5px 0;
+        border-left: 3px solid #007bff;
+      }
+      button {
+        padding: 10px 15px;
+        margin: 5px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #0056b3;
+      }
+      button:disabled {
+        background-color: #6c757d;
+        cursor: not-allowed;
+      }
+      .log {
+        background-color: #f8f9fa;
+        padding: 10px;
+        height: 400px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        font-family: monospace;
+        font-size: 11px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+      .debug-info {
+        background-color: #fff3cd;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Step Update Debug Test</h1>
+
+      <div id="status" class="status disconnected">Disconnected</div>
+
+      <div>
+        <button id="connectBtn" onclick="connect()">Connect</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>
+          Disconnect
+        </button>
+        <button
+          id="sendRealSequenceBtn"
+          onclick="sendRealBackendSequence()"
+          disabled
+        >
+          Send Real Backend Sequence
+        </button>
+        <button id="clearLogBtn" onclick="clearLog()">Clear Log</button>
+      </div>
+
+      <div class="debug-info">
+        <strong>Test Purpose:</strong> This test sends the exact same step
+        update messages that the backend sends, to verify that the frontend step
+        mapping and processing is working correctly.
+      </div>
+
+      <div class="grid">
+        <div>
+          <h3>WebSocket Log</h3>
+          <div id="log" class="log"></div>
+        </div>
+        <div>
+          <h3>Step Mapping Test</h3>
+          <div id="mappingResults"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let ws = null;
+
+      function log(message) {
+        const logDiv = document.getElementById('log');
+        const timestamp = new Date().toLocaleTimeString();
+        logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+
+      function clearLog() {
+        document.getElementById('log').innerHTML = '';
+        document.getElementById('mappingResults').innerHTML = '';
+      }
+
+      function updateStatus(connected) {
+        const statusDiv = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const sendRealSequenceBtn = document.getElementById(
+          'sendRealSequenceBtn'
+        );
+
+        if (connected) {
+          statusDiv.textContent = 'Connected';
+          statusDiv.className = 'status connected';
+          connectBtn.disabled = true;
+          disconnectBtn.disabled = false;
+          sendRealSequenceBtn.disabled = false;
+        } else {
+          statusDiv.textContent = 'Disconnected';
+          statusDiv.className = 'status disconnected';
+          connectBtn.disabled = false;
+          disconnectBtn.disabled = true;
+          sendRealSequenceBtn.disabled = true;
+        }
+      }
+
+      function connect() {
+        const clientId = 'test-client-debug';
+        const wsUrl = `ws://localhost:8000/ws/${clientId}`;
+
+        log(`🔌 Connecting to ${wsUrl}...`);
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = function (event) {
+          log('✅ Connected to WebSocket');
+          updateStatus(true);
+          testStepMapping();
+        };
+
+        ws.onmessage = function (event) {
+          try {
+            const message = JSON.parse(event.data);
+            log(`📨 Received: ${message.type}`);
+            if (message.type === 'step_update') {
+              log(
+                `   Step: ${
+                  message.data.tool_name || message.data.step_name
+                } - ${message.data.status}`
+              );
+            }
+          } catch (error) {
+            log(`📨 Received (raw): ${event.data}`);
+          }
+        };
+
+        ws.onclose = function (event) {
+          log(`❌ Connection closed: ${event.code} - ${event.reason}`);
+          updateStatus(false);
+          ws = null;
+        };
+
+        ws.onerror = function (error) {
+          log(`🚨 WebSocket error: ${error}`);
+          updateStatus(false);
+        };
+      }
+
+      function disconnect() {
+        if (ws) {
+          ws.close();
+        }
+      }
+
+      function testStepMapping() {
+        log('🧪 Testing step mapping function...');
+
+        const mappingResults = document.getElementById('mappingResults');
+        mappingResults.innerHTML = '<h4>Step Mapping Results:</h4>';
+
+        // Test the exact tool names from backend logs
+        const testCases = [
+          'OrderExtractionTool',
+          'ValidatorTool',
+          'Merge Fields Tool',
+          'Inventory Check Tool',
+          'Pricing Calculator',
+          'Supplier Quote Tool',
+          'LogisticsShippingTool',
+          'FinanceAndPaymentTool',
+          'ClarificationTool',
+          'StripePaymentTool',
+          'Order Tool',
+          'Blockchain Anchor Tool',
+          'Portia Google Send Email Tool',
+        ];
+
+        // Simple mapping function (copy of frontend logic)
+        function mapToolNameToStepId(toolName) {
+          const toolMappings = {
+            OrderExtractionTool: 'extraction',
+            ValidatorTool: 'validation',
+            'Inventory Check Tool': 'inventory',
+            'Pricing Calculator': 'pricing',
+            'Supplier Quote Tool': 'supplier',
+            LogisticsShippingTool: 'logistics',
+            FinanceAndPaymentTool: 'finance',
+            ClarificationTool: 'confirmation',
+            StripePaymentTool: 'payment',
+            'Order Tool': 'order',
+            'Blockchain Anchor Tool': 'blockchain',
+            'Portia Google Send Email Tool': 'email',
+            'Merge Fields Tool': 'merge',
+          };
+
+          if (toolMappings[toolName]) {
+            return toolMappings[toolName];
+          }
+
+          // Fallback
+          return toolName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        }
+
+        testCases.forEach((toolName) => {
+          const mapped = mapToolNameToStepId(toolName);
+          const div = document.createElement('div');
+          div.className = 'step';
+          div.innerHTML = `<strong>${toolName}</strong> → <code>${mapped}</code>`;
+          mappingResults.appendChild(div);
+          log(`🗺️ ${toolName} → ${mapped}`);
+        });
+      }
+
+      function sendRealBackendSequence() {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          log('❌ Not connected');
+          return;
+        }
+
+        log('🚀 Sending real backend step sequence...');
+
+        // These are the exact step updates from the backend logs
+        const realSteps = [
+          {
+            tool: 'OrderExtractionTool',
+            name: 'Order Extraction',
+            status: 'started',
+          },
+          {
+            tool: 'OrderExtractionTool',
+            name: 'Order Extraction',
+            status: 'completed',
+          },
+          { tool: 'ValidatorTool', name: 'Validator', status: 'started' },
+          { tool: 'ValidatorTool', name: 'Validator', status: 'completed' },
+          {
+            tool: 'Merge Fields Tool',
+            name: 'Merge Fields',
+            status: 'started',
+          },
+          {
+            tool: 'Merge Fields Tool',
+            name: 'Merge Fields',
+            status: 'completed',
+          },
+          {
+            tool: 'Inventory Check Tool',
+            name: 'Inventory Check',
+            status: 'started',
+          },
+          {
+            tool: 'Inventory Check Tool',
+            name: 'Inventory Check',
+            status: 'completed',
+          },
+          {
+            tool: 'Pricing Calculator',
+            name: 'Pricing Calculator',
+            status: 'started',
+          },
+          {
+            tool: 'Pricing Calculator',
+            name: 'Pricing Calculator',
+            status: 'completed',
+          },
+          {
+            tool: 'Supplier Quote Tool',
+            name: 'Supplier Quote',
+            status: 'started',
+          },
+          {
+            tool: 'Supplier Quote Tool',
+            name: 'Supplier Quote',
+            status: 'completed',
+          },
+          {
+            tool: 'LogisticsShippingTool',
+            name: 'Logistics Shipping',
+            status: 'started',
+          },
+          {
+            tool: 'LogisticsShippingTool',
+            name: 'Logistics Shipping',
+            status: 'completed',
+          },
+          {
+            tool: 'FinanceAndPaymentTool',
+            name: 'Finance And Payment',
+            status: 'started',
+          },
+          {
+            tool: 'FinanceAndPaymentTool',
+            name: 'Finance And Payment',
+            status: 'completed',
+          },
+          {
+            tool: 'ClarificationTool',
+            name: 'Clarification',
+            status: 'started',
+          },
+          {
+            tool: 'ClarificationTool',
+            name: 'Clarification',
+            status: 'completed',
+          },
+          {
+            tool: 'StripePaymentTool',
+            name: 'Stripe Payment',
+            status: 'started',
+          },
+          {
+            tool: 'StripePaymentTool',
+            name: 'Stripe Payment',
+            status: 'completed',
+          },
+          { tool: 'Order Tool', name: 'Order', status: 'started' },
+          { tool: 'Order Tool', name: 'Order', status: 'completed' },
+          {
+            tool: 'Blockchain Anchor Tool',
+            name: 'Blockchain Anchor',
+            status: 'started',
+          },
+          {
+            tool: 'Blockchain Anchor Tool',
+            name: 'Blockchain Anchor',
+            status: 'completed',
+          },
+          {
+            tool: 'Portia Google Send Email Tool',
+            name: 'Email',
+            status: 'started',
+          },
+          {
+            tool: 'Portia Google Send Email Tool',
+            name: 'Email',
+            status: 'completed',
+          },
+        ];
+
+        // Send steps with realistic delays
+        realSteps.forEach((step, index) => {
+          setTimeout(() => {
+            const stepUpdate = {
+              type: 'step_update',
+              data: {
+                step_id: `step-${index}`,
+                step_name: step.name,
+                status: step.status,
+                tool_name: step.tool,
+                progress_percentage: ((index + 1) / realSteps.length) * 100,
+                execution_time_ms: 1000 + Math.random() * 2000,
+              },
+              timestamp: new Date().toISOString(),
+              client_id: 'test-client-debug',
+            };
+
+            ws.send(JSON.stringify(stepUpdate));
+            log(`📤 Sent: ${step.tool} - ${step.status}`);
+          }, index * 300); // 300ms between each step
+        });
+
+        log(`📊 Queued ${realSteps.length} step updates`);
+      }
+
+      window.onload = function () {
+        log('🔧 Step update debug test loaded');
+        log('📋 This test will:');
+        log('   1. Test the step mapping function');
+        log('   2. Send the exact step sequence from backend logs');
+        log('   3. Help debug why steps are not updating in the UI');
+        log('');
+        log('👆 Click "Connect" to start testing');
+      };
+    </script>
+  </body>
+</html>
