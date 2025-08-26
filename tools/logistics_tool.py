@@ -4,13 +4,13 @@ from portia import Tool, ToolRunContext
 
 # Base logistics rates per km per unit by mode
 LOGISTICS_RATES = {
-    "road": 2.5,
-    "rail": 1.8,
-    "air": 6.0,
+    "road": 1.2,
+    "rail": 0.8,
+    "air": 3.0,
 }
 
 # Base handling fee per shipment
-BASE_HANDLING_FEE = 200
+BASE_HANDLING_FEE = 500
 
 # Carrier multipliers (cost, speed, emissions factor in gCO2 per ton-km)
 CARRIERS = {
@@ -176,7 +176,7 @@ if __name__ == "__main__":
     print(result)
     result = tool.run(
         None,
-        model="Harrier",
+        model="urus",
         quantity=3,
         distance_km=1500,
         urgency="urgent",

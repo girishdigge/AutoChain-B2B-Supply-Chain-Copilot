@@ -75,6 +75,11 @@ class ValidatorTool(Tool[dict]):
             invalid_fields.append(f"model: '{model}' too short")
 
         if quantity is None:
+            quantity = 1
+        elif quantity <= 0:
+            invalid_fields.append(f"quantity: {quantity} must be > 0")
+
+        if quantity is None:
             missing_fields.append("quantity")
         elif quantity <= 0:
             invalid_fields.append(f"quantity: {quantity} must be > 0")

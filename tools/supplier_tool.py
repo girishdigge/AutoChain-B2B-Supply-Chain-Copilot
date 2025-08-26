@@ -4,34 +4,50 @@ from portia import Tool, ToolRunContext
 
 # Supplier catalog with tiered pricing
 SUPPLIERS: Dict[str, List[dict]] = {
-    "Harrier": [
+    "Lamborghini Aventador": [
         {
-            "name": "AutoMakers Ltd",
-            "moq": 2,
-            "lead_time_weeks": 2,
-            "pricing_tiers": [(1, 20000), (5, 19000), (10, 18000)],
-        },
-        {
-            "name": "GlobalCars Inc",
+            "name": "Luxury Motors Inc.",
             "moq": 1,
-            "lead_time_weeks": 3,
-            "pricing_tiers": [(1, 20500), (5, 19500), (10, 18500)],
-        },
-    ],
-    "Safari": [
-        {
-            "name": "SUV World",
-            "moq": 5,
-            "lead_time_weeks": 3,
-            "pricing_tiers": [(1, 22000), (5, 21000), (10, 20000)],
+            "lead_time_weeks": 12,
+            "pricing_tiers": [(1, 450000), (2, 440000)],
         }
     ],
-    "GLA": [
+    "Rolls-Royce Ghost": [
         {
-            "name": "Luxury Imports",
-            "moq": 5,
-            "lead_time_weeks": 4,
-            "pricing_tiers": [(1, 30000), (3, 29000), (10, 28000)],
+            "name": "Elite Autos Co.",
+            "moq": 1,
+            "lead_time_weeks": 16,
+            "pricing_tiers": [(1, 380000), (2, 375000)],
+        }
+    ],
+    "Ferrari SF90 Stradale": [
+        {
+            "name": "Speedster Global Ltd.",
+            "moq": 1,
+            "lead_time_weeks": 14,
+            "pricing_tiers": [(1, 510000)],
+        },
+        {
+            "name": "Exotic Car House",
+            "moq": 1,
+            "lead_time_weeks": 15,
+            "pricing_tiers": [(1, 515000)],
+        },
+    ],
+    "Aston Martin DB12": [
+        {
+            "name": "British Automotive Partners",
+            "moq": 1,
+            "lead_time_weeks": 10,
+            "pricing_tiers": [(1, 245000)],
+        }
+    ],
+    "Mercedes-Maybach S680": [
+        {
+            "name": "German Automotive Group",
+            "moq": 1,
+            "lead_time_weeks": 8,
+            "pricing_tiers": [(1, 230000), (2, 225000)],
         }
     ],
 }

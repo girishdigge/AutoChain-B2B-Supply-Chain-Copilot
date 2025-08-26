@@ -4,11 +4,11 @@ from portia import Tool, ToolRunContext
 
 # Simulated inventory
 INVENTORY = {
-    "Harrier": 5,
-    "Safari": 2,
-    "GLA": 0,
-    "GLC": 3,
-    "C-Class": 10,
+    "Lamborghini Aventador": 1,
+    "Rolls-Royce Ghost": 1,
+    "Aston Martin DB12": 5,
+    "Ferrari SF90 Stradale": 5,
+    "Mercedes-Maybach S 680": 5,
 }
 
 
